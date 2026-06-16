@@ -1,0 +1,156 @@
+# ============================================================
+# ba-analysis — 币安数据分析服务配置 (只读MySQL, 不访问币安)
+# ============================================================
+
+server:
+  port: 8080
+
+spring:
+  mvc:
+    log-resolved-exception: false
+  datasource:
+    # 实际部署地址; 本地开发连远程库时直接用这个IP。
+    url: jdbc:mysql://192.168.193.128:3306/ba?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: root
+    password: Kzfx8N78@123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+logging:
+  level:
+    org.springframework.web.servlet.resource.ResourceHttpRequestHandler: ERROR
+
+binance:
+  # 仅 history-buffer-days 被分析器使用 (推导所需K线天数); 分析服务不访问币安, base-url/proxy 已移除。
+  concurrency:
+    history-buffer-days: 30
+
+  analysis:
+
+    consecutive-rise:
+      enabled: false
+      days: 5
+      volume-surge-ratio: 1.0
+
+    rise-then-drop:
+      enabled: false
+      days: 5
+      volume-surge-ratio: 1.0
+
+    high-rise:
+      enabled: false
+      days: 7
+      threshold-percent: 50
+      volume-surge-ratio: 1.0
+
+    drop-then-rise:
+      enabled: false
+      days: 5
+      volume-surge-ratio: 1.0
+
+    slow-rise:
+      enabled: false
+      days: 7
+      max-daily-change-percent: 3
+      volume-surge-ratio: 1.0
+
+    price-drop-oi-rise:
+      enabled: false
+      days: 5
+      max-price-rise-percent: 10
+      min-oi-rise-percent: 20
+      volume-surge-ratio: 1.0
+
+    low-price-consolidation:
+      enabled: false
+      days: 7
+      max-price-change-percent: 10
+      low-price-percentile: 30
+      volume-surge-ratio: 1.0
+
+    short-term-rise:
+      enabled: true
+      interval: 5m
+      period: 6
+      threshold-percent: 3
+      volume-surge-ratio: 1.0
+      min-score: 70
+      launch-body-ratio: 0.6
+      launch-close-pos: 0.8
+      launch-vol-ratio: 3.0
+      taker-buy-ratio: 0.55
+
+    bullish-accumulation:
+      enabled: false
+      days: 14
+      min-score: 60
+      price-lookback-days: 30
+      drawdown-min: 10.0
+      require-higher-low: true
+      volume-increase-min: 1.2
+      range-contraction-max: 0.8
+
+    first-yin-day:
+      enabled: false
+      days: 3
+      min-total-rise-percent: 15
+      volume-surge-ratio: 1.0
+
+    oi-consecutive-rise:
+      enabled: true
+      days: 5
+      max-price-rise-percent: 7
+      volume-surge-ratio: 1.0
+
+    n-min-max:
+      enabled: false
+      days: 7
+
+    n-day-low:
+      enabled: false
+      days: 7
+
+    altcoin-pump-alert:
+      enabled: false
+      days: 7
+      min-score: 65
+      max-price-decline-percent: 15.0
+      oi-consecutive-days: 3
+      volume-expansion-ratio: 1.5
+      low-price-percentile: 35.0
+      wick-body-ratio: 1.5
+      silent-buyer-ratio: 1.3
+      max-drawdown-percent: 25.0
+
+    reversal-long:
+      enabled: false
+      decline-min-days: 4
+      decline-min-pct: 5.0
+      decline-max-pct: 12.0
+      reversal-min-pct: 1.0
+      reversal-max-pct: 4.0
+      take-profit-pct: 6.0
+      stop-loss-pct: 4.0
+      volume-confirm-ratio: 1.0
+      quality-min-score: 55
+
+    composite-score:
+      enabled: true
+      min-score: 50
+      oi-weight: 25
+      price-weight: 20
+      funding-weight: 15
+      volume-weight: 15
+      social-weight: 0
+      venue-weight: 0
+      early-price-max-pct: 15.0
+
+  schedule:
+    # JVM 固定 Asia/Shanghai 运行 (见 AnalysisApplication)。以下 cron 均为北京时间。
+    daily-analysis: "0 5 8 * * ?"
+    short-term-analysis: "0 */5 * * * ?"
+
+  report:
+    dir: ./reports

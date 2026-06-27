@@ -2,6 +2,7 @@ package com.ba.analyzer.service;
 
 import com.ba.analyzer.model.FundingRateData;
 import com.ba.analyzer.model.KlineData;
+import com.ba.analyzer.model.LongShortRatioData;
 import com.ba.analyzer.model.OpenInterestData;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,18 @@ public class DataFetchService {
     /** 从DB读取最近的资金费率 (供特征引擎使用)。 */
     public List<FundingRateData> getRecentFundingRates(String symbol, int limit) {
         return dataStore.getFundingRates(symbol, limit);
+    }
+
+    /** 批量读多空比 (供分析器)。缺失不放入 map; 覆盖率 <90% 时打 warn。 */
+    public Map<String, List<LongShortRatioData>> getLongShortRatioBatch(
+            List<String> symbols, String ratioType, String period, int limit) {
+        Map<String, List<LongShortRatioData>> stored =
+                dataStore.getLongShortRatioBatch(symbols, ratioType, period, limit);
+        if (stored.size() < symbols.size() * 0.9) {
+            log.warn("DB has {} LSR for only {}/{} symbols; sync service may be behind",
+                    ratioType, stored.size(), symbols.size());
+        }
+        return stored;
     }
 
     private Map<String, List<KlineData>> trimKlinesByPeriod(Map<String, List<KlineData>> klineMap, int period) {

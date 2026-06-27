@@ -25,7 +25,8 @@ public class ReportWriter {
             "价涨仓增", "price_drop_oi_rise",
             "低位插针", "low_price_consolidation",
             "短期急涨", "short_term_rise",
-            "底部吸筹", "bullish_accumulation"
+            "底部吸筹", "bullish_accumulation",
+            "多空比异动", "long_short_ratio"
     );
 
     private static final int MAX_REPORT_KEEP_DAYS = 30;

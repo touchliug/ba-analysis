@@ -73,8 +73,15 @@ public class LongShortRatioAnalyzer implements Analyzer {
         for (String symbol : symbols) {
             List<LongShortRatioData> tp = topPos.get(symbol);
             List<LongShortRatioData> tk = taker.get(symbol);
-            if (tp == null || tp.size() < cfg.getLookback() + 1) continue;
-            if (tk == null || tk.isEmpty()) continue;
+            if (tp == null || tp.size() < cfg.getLookback() + 1) {
+                log.debug("skip {}: TOP_POSITION series insufficient ({} < {})",
+                        symbol, tp == null ? 0 : tp.size(), cfg.getLookback() + 1);
+                continue;
+            }
+            if (tk == null || tk.isEmpty()) {
+                log.debug("skip {}: TAKER data missing", symbol);
+                continue;
+            }
 
             double agoTP = tp.get(0).getRatioValue();
             double latestTP = tp.get(tp.size() - 1).getRatioValue();
@@ -91,6 +98,7 @@ public class LongShortRatioAnalyzer implements Analyzer {
             }
 
             double tpHit = clamp01(tpChangePct / 10.0);
+            // 饱和区间=1.0: taker 比 takerBullishMin 高出 1.0 即满分
             double takerHit = clamp01((latestTaker - cfg.getTakerBullishMin()) / 1.0);
             double divHit = (tpChangePct > 0 && gaChangePct < 0)
                     ? clamp01((tpChangePct - gaChangePct) / 20.0) : 0;

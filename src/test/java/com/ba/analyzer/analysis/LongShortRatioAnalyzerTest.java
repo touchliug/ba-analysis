@@ -65,7 +65,7 @@ class LongShortRatioAnalyzerTest {
         assertEquals("多空比异动", report.getAnalysisType());
         assertEquals(1, report.getMatchedCount());
         AnalysisReport.CoinAnalysis coin = report.getCoins().get(0);
-        assertTrue(coin.getScore() >= 60, "smart-money sample should clear minScore");
+        assertEquals(83, coin.getScore(), "smart-money sample scores deterministically");
         assertEquals("long", coin.getSide());
     }
 

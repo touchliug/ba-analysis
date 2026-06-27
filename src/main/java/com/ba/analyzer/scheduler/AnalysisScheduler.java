@@ -24,7 +24,7 @@ import java.util.concurrent.ExecutorService;
  * 2. short-term-analysis: 每5分钟运行日内数据分析器
  * 缓存最新分析结果供Web接口查询; 支持异步执行避免Web阻塞。
  *
- * 币种全集每轮分析前从MySQL刷新(SymbolService → SELECT DISTINCT symbol FROM klines)。
+ * 币种全集每轮分析前从MySQL刷新(SymbolService → symbols 表, klines 去重兜底)。
  */
 @Slf4j
 @Component

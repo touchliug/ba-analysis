@@ -299,6 +299,14 @@ public class AnalysisController {
                 params.put("maxDrawdownPercent", Map.of("type", "double", "description", "窗口最大回撤上限%", "default", 25.0));
                 yield params;
             }
+            case "多空比异动" -> {
+                params.put("period", Map.of("type", "string", "description", "LSR统计周期", "default", "1h"));
+                params.put("lookback", Map.of("type", "int", "description", "与多少根之前比较", "default", 12));
+                params.put("minScore", Map.of("type", "int", "description", "最低评分(0-100)", "default", 60));
+                params.put("takerBullishMin", Map.of("type", "double", "description", "taker买卖比买盘占优阈值", "default", 1.0));
+                params.put("_note", Map.of("type", "string", "description", "该分析器参数当前仅从配置(application.yml)读取, 暂不支持按请求覆盖; 此处仅为文档说明"));
+                yield params;
+            }
             default -> params;
         };
     }

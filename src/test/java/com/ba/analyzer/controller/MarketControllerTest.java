@@ -130,4 +130,12 @@ class MarketControllerTest {
                 controller.fundingRanking(1, "asc");
         assertEquals("C", resp.getBody().get(0).getSymbol());
     }
+
+    @Test
+    void limitClampedToAtLeastOne() {
+        when(store.getAllTicker24h()).thenReturn(new java.util.ArrayList<>(List.of(
+                ticker("A", 1.0, 10), ticker("B", 9.0, 10))));
+        ResponseEntity<List<com.ba.analyzer.model.Ticker24hData>> resp = controller.tickerGainers(0);
+        assertEquals(1, resp.getBody().size()); // limit 0 -> clamped to 1
+    }
 }

@@ -25,8 +25,10 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class MarketController {
 
-    private static final Set<String> RATIO_TYPES =
-            Set.of("GLOBAL_ACCOUNT", "TOP_ACCOUNT", "TOP_POSITION", "TAKER");
+    // 固定顺序 (Set.of 迭代序每次JVM启动随机, 用 List 保证 /lsr/{symbol} 响应键序稳定)
+    private static final List<String> RATIO_TYPE_ORDER =
+            List.of("GLOBAL_ACCOUNT", "TOP_ACCOUNT", "TOP_POSITION", "TAKER");
+    private static final Set<String> RATIO_TYPES = Set.copyOf(RATIO_TYPE_ORDER);
     private static final int MAX_LIMIT = 500;
 
     private final JdbcDataStore store;
@@ -37,6 +39,7 @@ public class MarketController {
 
     // ---- 多空比 ----
 
+    /** 未知 symbol 返回 200 + 四个空列表 (集合端点语义, 非 404)。 */
     @GetMapping("/lsr/{symbol}")
     public ResponseEntity<Map<String, List<LongShortRatioData>>> lsr(
             @PathVariable String symbol,
@@ -44,7 +47,7 @@ public class MarketController {
             @RequestParam(defaultValue = "48") int limit) {
         int lim = clampLimit(limit);
         Map<String, List<LongShortRatioData>> out = new LinkedHashMap<>();
-        for (String type : RATIO_TYPES) {
+        for (String type : RATIO_TYPE_ORDER) {
             out.put(type, store.getLongShortRatio(symbol, type, period, lim));
         }
         return ResponseEntity.ok(out);
@@ -60,9 +63,11 @@ public class MarketController {
                     "error", "invalid type", "allowed", RATIO_TYPES));
         }
         int lim = clampLimit(limit);
-        List<LongShortRatioData> latest = store.getLatestLongShortRatioAll(type, period);
-        latest.sort(Comparator.comparingDouble(LongShortRatioData::getRatioValue).reversed());
-        return ResponseEntity.ok(latest.stream().limit(lim).toList());
+        List<LongShortRatioData> ranked = store.getLatestLongShortRatioAll(type, period).stream()
+                .sorted(Comparator.comparingDouble(LongShortRatioData::getRatioValue).reversed())
+                .limit(lim)
+                .toList();
+        return ResponseEntity.ok(ranked);
     }
 
     // ---- 24h 行情快照 ----
@@ -95,9 +100,10 @@ public class MarketController {
     }
 
     private List<Ticker24hData> topTickers(Comparator<Ticker24hData> cmp, int limit) {
-        List<Ticker24hData> all = store.getAllTicker24h();
-        all.sort(cmp);
-        return all.stream().limit(clampLimit(limit)).toList();
+        return store.getAllTicker24h().stream()
+                .sorted(cmp)
+                .limit(clampLimit(limit))
+                .toList();
     }
 
     // ---- 标记价/资金费快照 ----
@@ -112,11 +118,13 @@ public class MarketController {
     public ResponseEntity<List<PremiumIndexData>> fundingRanking(
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "desc") String order) {
-        List<PremiumIndexData> all = store.getAllPremiumIndex();
         Comparator<PremiumIndexData> cmp =
                 Comparator.comparingDouble(PremiumIndexData::getLastFundingRateNum);
         if (!"asc".equalsIgnoreCase(order)) cmp = cmp.reversed();
-        all.sort(cmp);
-        return ResponseEntity.ok(all.stream().limit(clampLimit(limit)).toList());
+        List<PremiumIndexData> ranked = store.getAllPremiumIndex().stream()
+                .sorted(cmp)
+                .limit(clampLimit(limit))
+                .toList();
+        return ResponseEntity.ok(ranked);
     }
 }

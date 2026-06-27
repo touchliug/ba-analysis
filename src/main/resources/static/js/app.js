@@ -74,6 +74,59 @@ const api = {
     }
 };
 
+/* ===== Market API Layer (/api/market) ===== */
+const MARKET_BASE = '/api/market';
+const marketApi = {
+    async lsrRanking(type, limit) {
+        const res = await fetch(`${MARKET_BASE}/lsr/ranking?type=${encodeURIComponent(type)}&period=1h&limit=${limit}`);
+        if (!res.ok) throw new Error('lsr ranking failed');
+        return res.json();
+    },
+    async lsr(symbol) {
+        const res = await fetch(`${MARKET_BASE}/lsr/${encodeURIComponent(symbol)}?period=1h&limit=1`);
+        if (!res.ok) throw new Error('lsr failed');
+        return res.json();
+    },
+    async ticker(kind, limit) {
+        const res = await fetch(`${MARKET_BASE}/ticker/${kind}?limit=${limit}`);
+        if (!res.ok) throw new Error('ticker failed');
+        return res.json();
+    },
+    async tickerOne(symbol) {
+        try {
+            const res = await fetch(`${MARKET_BASE}/ticker/${encodeURIComponent(symbol)}`);
+            return res.ok ? res.json() : null;
+        } catch { return null; }
+    },
+    async funding(limit, order) {
+        const res = await fetch(`${MARKET_BASE}/premium/funding-ranking?limit=${limit}&order=${order}`);
+        if (!res.ok) throw new Error('funding failed');
+        return res.json();
+    },
+    async premiumOne(symbol) {
+        try {
+            const res = await fetch(`${MARKET_BASE}/premium/${encodeURIComponent(symbol)}`);
+            return res.ok ? res.json() : null;
+        } catch { return null; }
+    }
+};
+
+/* ===== Market constants ===== */
+const RATIO_LABELS = {
+    TOP_POSITION: '大户持仓多空比',
+    TOP_ACCOUNT: '大户账户多空比',
+    GLOBAL_ACCOUNT: '散户账户多空比',
+    TAKER: '主动买卖比'
+};
+const TICKER_TITLES = { gainers: '24h 涨幅榜', losers: '24h 跌幅榜', volume: '24h 成交额榜' };
+const MARKET_ITEMS = [
+    { view: 'market-lsr', label: '多空比' },
+    { view: 'market-gainers', label: '涨幅榜' },
+    { view: 'market-losers', label: '跌幅榜' },
+    { view: 'market-volume', label: '成交额榜' },
+    { view: 'market-funding', label: '资金费率' }
+];
+
 /* ===== State ===== */
 const state = {
     analyzers: [],
@@ -81,13 +134,19 @@ const state = {
     currentView: 'overview',
     currentAnalyzer: null,
     pollTimer: null,
-    pollEnabled: true
+    pollEnabled: true,
+    // 行情视图参数
+    lsrType: 'TOP_POSITION',
+    marketLimit: 50,
+    fundingOrder: 'desc'
 };
 
 /* ===== Sidebar ===== */
 function renderSidebar() {
     const nav = document.querySelector('.sidebar-nav');
     let html = `<button class="nav-item${state.currentView === 'overview' ? ' active' : ''}" data-view="overview">总览</button>`;
+
+    html += `<div class="nav-group-label">分析器</div>`;
     for (const name of state.analyzers) {
         const report = state.latestReports[name];
         const count = report ? report.matchedCount : 0;
@@ -98,6 +157,15 @@ function renderSidebar() {
             <span class="${badgeClass}">${count}</span>
         </button>`;
     }
+
+    html += `<div class="nav-group-label">行情</div>`;
+    for (const m of MARKET_ITEMS) {
+        const isActive = state.currentView === m.view;
+        html += `<button class="nav-item${isActive ? ' active' : ''}" data-view="${m.view}">
+            <span>${escHtml(m.label)}</span>
+        </button>`;
+    }
+
     nav.innerHTML = html;
     nav.querySelectorAll('.nav-item').forEach(el => {
         el.addEventListener('click', () => {
@@ -105,17 +173,30 @@ function renderSidebar() {
             if (view === 'overview') {
                 state.currentView = 'overview';
                 state.currentAnalyzer = null;
-                renderSidebar();
-                renderOverview();
-            } else {
-                const name = el.dataset.name;
+            } else if (view === 'detail') {
                 state.currentView = 'detail';
-                state.currentAnalyzer = name;
-                renderSidebar();
-                renderDetail(name);
+                state.currentAnalyzer = el.dataset.name;
+            } else {
+                state.currentView = view; // market-*
+                state.currentAnalyzer = null;
             }
+            renderSidebar();
+            renderCurrentView();
         });
     });
+}
+
+/* ===== View Router ===== */
+function renderCurrentView() {
+    switch (state.currentView) {
+        case 'detail': renderDetail(state.currentAnalyzer); break;
+        case 'market-lsr': renderMarketLsr(); break;
+        case 'market-gainers': renderTickerBoard('gainers'); break;
+        case 'market-losers': renderTickerBoard('losers'); break;
+        case 'market-volume': renderTickerBoard('volume'); break;
+        case 'market-funding': renderFunding(); break;
+        default: renderOverview();
+    }
 }
 
 /* ===== Health Check ===== */
@@ -156,6 +237,28 @@ function escHtml(str) {
 function formatTime(t) {
     if (!t) return '--';
     try { return new Date(t).toLocaleString('zh-CN'); } catch { return t; }
+}
+
+function clampLimit(v) {
+    let n = parseInt(v, 10);
+    if (isNaN(n)) n = 50;
+    return Math.min(Math.max(n, 1), 500);
+}
+
+/** 大额成交量 → 亿/万 简写。 */
+function fmtVol(n) {
+    if (n == null || isNaN(n)) return '--';
+    if (n >= 1e8) return (n / 1e8).toFixed(2) + '亿';
+    if (n >= 1e4) return (n / 1e4).toFixed(2) + '万';
+    return n.toFixed(0);
+}
+
+/** 带正负色的百分比 span (v 已是百分比数值)。 */
+function pctSpan(v, digits = 2) {
+    if (v == null || isNaN(v)) return '<span class="neutral">--</span>';
+    const cls = v > 0 ? 'positive' : v < 0 ? 'negative' : 'neutral';
+    const sign = v > 0 ? '+' : '';
+    return `<span class="${cls}">${sign}${v.toFixed(digits)}%</span>`;
 }
 
 /* ===== Init ===== */
@@ -483,6 +586,201 @@ function bindDetailEvents(name, paramSpec) {
                 stopPolling();
             }
         });
+    }
+}
+
+/* ===== Market: 多空比 (排名 + 单币快照) ===== */
+function renderMarketLsr() {
+    const content = document.getElementById('content');
+    const typeOptions = Object.entries(RATIO_LABELS)
+        .map(([k, v]) => `<option value="${k}"${state.lsrType === k ? ' selected' : ''}>${escHtml(v)}</option>`)
+        .join('');
+    content.innerHTML = `
+        <div class="page-title">多空比</div>
+        <div class="detail-section">
+            <div class="market-toolbar">
+                <select id="lsr-type" class="toolbar-select">${typeOptions}</select>
+                <input type="number" id="lsr-limit" class="toolbar-input" value="${state.marketLimit}" min="1" max="500">
+                <button class="btn-primary" id="lsr-go">查询排名</button>
+                <span class="toolbar-sep"></span>
+                <input type="text" id="lsr-symbol" class="toolbar-input wide" placeholder="单币查询 如 BTCUSDT">
+                <button class="btn-default" id="lsr-symbol-go">查询单币</button>
+            </div>
+            <div id="market-result"><div class="loading">加载中...</div></div>
+        </div>`;
+    document.getElementById('lsr-go').addEventListener('click', () => {
+        state.lsrType = document.getElementById('lsr-type').value;
+        state.marketLimit = clampLimit(document.getElementById('lsr-limit').value);
+        loadLsrRanking();
+    });
+    const symBox = document.getElementById('lsr-symbol');
+    const doSymbol = () => {
+        const sym = symBox.value.trim().toUpperCase();
+        if (sym) loadSymbolSnapshot(sym);
+    };
+    document.getElementById('lsr-symbol-go').addEventListener('click', doSymbol);
+    symBox.addEventListener('keydown', e => { if (e.key === 'Enter') doSymbol(); });
+    loadLsrRanking();
+}
+
+async function loadLsrRanking() {
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    box.innerHTML = `<div class="loading">加载中...</div>`;
+    try {
+        const rows = await marketApi.lsrRanking(state.lsrType, state.marketLimit);
+        if (!rows || rows.length === 0) { box.innerHTML = `<div class="empty-state">暂无数据</div>`; return; }
+        let trs = '';
+        rows.forEach((r, i) => {
+            trs += `<tr>
+                <td>${i + 1}</td>
+                <td><strong>${escHtml(r.symbol)}</strong></td>
+                <td>${(r.ratioValue ?? 0).toFixed(4)}</td>
+                <td>${escHtml(String(r.longValue ?? '--'))}</td>
+                <td>${escHtml(String(r.shortValue ?? '--'))}</td>
+                <td>${escHtml(formatTime(r.timestamp))}</td>
+            </tr>`;
+        });
+        box.innerHTML = `
+            <div class="result-summary">${escHtml(RATIO_LABELS[state.lsrType])} 排名(降序) · 共 ${rows.length} 条</div>
+            <div class="result-table-wrap"><table class="result-table">
+                <thead><tr><th>#</th><th>币种</th><th>多空比</th><th>多头侧</th><th>空头侧</th><th>时间</th></tr></thead>
+                <tbody>${trs}</tbody></table></div>`;
+    } catch (e) {
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
+    }
+}
+
+async function loadSymbolSnapshot(symbol) {
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    box.innerHTML = `<div class="loading">加载中...</div>`;
+    try {
+        const [lsrMap, tk, pm] = await Promise.all([
+            marketApi.lsr(symbol), marketApi.tickerOne(symbol), marketApi.premiumOne(symbol)
+        ]);
+        let lsrRows = '';
+        for (const [type, label] of Object.entries(RATIO_LABELS)) {
+            const arr = (lsrMap && lsrMap[type]) || [];
+            const latest = arr.length ? arr[arr.length - 1] : null;
+            lsrRows += `<tr>
+                <td>${escHtml(label)}</td>
+                <td>${latest ? (latest.ratioValue ?? 0).toFixed(4) : '--'}</td>
+                <td>${latest ? escHtml(String(latest.longValue)) : '--'}</td>
+                <td>${latest ? escHtml(String(latest.shortValue)) : '--'}</td>
+            </tr>`;
+        }
+        const tkHtml = tk
+            ? `现价 ${escHtml(tk.lastPrice)} · 24h ${pctSpan(tk.priceChangePercentNum)} · 成交额 ${fmtVol(tk.quoteVolumeNum)}`
+            : '无 24h 行情';
+        const pmHtml = pm
+            ? `标记价 ${escHtml(pm.markPrice)} · 资金费率 ${pctSpan((pm.lastFundingRateNum || 0) * 100, 4)} · 下次结算 ${escHtml(formatTime(pm.nextFundingTime))}`
+            : '无标记价数据';
+        box.innerHTML = `
+            <div class="result-summary"><strong>${escHtml(symbol)}</strong> 单币快照<br>${tkHtml}<br>${pmHtml}</div>
+            <div class="result-table-wrap"><table class="result-table">
+                <thead><tr><th>多空比类型</th><th>最新值</th><th>多头侧</th><th>空头侧</th></tr></thead>
+                <tbody>${lsrRows}</tbody></table></div>`;
+    } catch (e) {
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
+    }
+}
+
+/* ===== Market: 24h 行情榜 (涨幅/跌幅/成交额) ===== */
+function renderTickerBoard(kind) {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        <div class="page-title">${escHtml(TICKER_TITLES[kind])}</div>
+        <div class="detail-section">
+            <div class="market-toolbar">
+                <label class="toolbar-label">条数</label>
+                <input type="number" id="tk-limit" class="toolbar-input" value="${state.marketLimit}" min="1" max="500">
+                <button class="btn-primary" id="tk-go">刷新</button>
+            </div>
+            <div id="market-result"><div class="loading">加载中...</div></div>
+        </div>`;
+    document.getElementById('tk-go').addEventListener('click', () => {
+        state.marketLimit = clampLimit(document.getElementById('tk-limit').value);
+        loadTicker(kind);
+    });
+    loadTicker(kind);
+}
+
+async function loadTicker(kind) {
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    box.innerHTML = `<div class="loading">加载中...</div>`;
+    try {
+        const rows = await marketApi.ticker(kind, state.marketLimit);
+        if (!rows || rows.length === 0) { box.innerHTML = `<div class="empty-state">暂无数据</div>`; return; }
+        let trs = '';
+        rows.forEach((r, i) => {
+            trs += `<tr>
+                <td>${i + 1}</td>
+                <td><strong>${escHtml(r.symbol)}</strong></td>
+                <td>${escHtml(r.lastPrice)}</td>
+                <td>${pctSpan(r.priceChangePercentNum)}</td>
+                <td>${fmtVol(r.quoteVolumeNum)}</td>
+            </tr>`;
+        });
+        box.innerHTML = `
+            <div class="result-summary">共 ${rows.length} 条</div>
+            <div class="result-table-wrap"><table class="result-table">
+                <thead><tr><th>#</th><th>币种</th><th>现价</th><th>24h涨跌</th><th>成交额(USDT)</th></tr></thead>
+                <tbody>${trs}</tbody></table></div>`;
+    } catch (e) {
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
+    }
+}
+
+/* ===== Market: 资金费率榜 ===== */
+function renderFunding() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        <div class="page-title">资金费率榜</div>
+        <div class="detail-section">
+            <div class="market-toolbar">
+                <select id="fd-order" class="toolbar-select">
+                    <option value="desc"${state.fundingOrder === 'desc' ? ' selected' : ''}>最高在前</option>
+                    <option value="asc"${state.fundingOrder === 'asc' ? ' selected' : ''}>最低/最负在前</option>
+                </select>
+                <input type="number" id="fd-limit" class="toolbar-input" value="${state.marketLimit}" min="1" max="500">
+                <button class="btn-primary" id="fd-go">刷新</button>
+            </div>
+            <div id="market-result"><div class="loading">加载中...</div></div>
+        </div>`;
+    document.getElementById('fd-go').addEventListener('click', () => {
+        state.fundingOrder = document.getElementById('fd-order').value;
+        state.marketLimit = clampLimit(document.getElementById('fd-limit').value);
+        loadFunding();
+    });
+    loadFunding();
+}
+
+async function loadFunding() {
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    box.innerHTML = `<div class="loading">加载中...</div>`;
+    try {
+        const rows = await marketApi.funding(state.marketLimit, state.fundingOrder);
+        if (!rows || rows.length === 0) { box.innerHTML = `<div class="empty-state">暂无数据</div>`; return; }
+        let trs = '';
+        rows.forEach((r, i) => {
+            trs += `<tr>
+                <td>${i + 1}</td>
+                <td><strong>${escHtml(r.symbol)}</strong></td>
+                <td>${pctSpan((r.lastFundingRateNum || 0) * 100, 4)}</td>
+                <td>${escHtml(r.markPrice)}</td>
+                <td>${escHtml(formatTime(r.nextFundingTime))}</td>
+            </tr>`;
+        });
+        box.innerHTML = `
+            <div class="result-summary">共 ${rows.length} 条 · 资金费每 8 小时结算</div>
+            <div class="result-table-wrap"><table class="result-table">
+                <thead><tr><th>#</th><th>币种</th><th>资金费率</th><th>标记价</th><th>下次结算</th></tr></thead>
+                <tbody>${trs}</tbody></table></div>`;
+    } catch (e) {
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
     }
 }
 

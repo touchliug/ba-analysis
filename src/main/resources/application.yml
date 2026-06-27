@@ -147,6 +147,16 @@ binance:
       venue-weight: 0
       early-price-max-pct: 15.0
 
+    long-short-ratio:
+      enabled: true
+      period: 1h
+      lookback: 12
+      min-score: 60
+      top-position-weight: 40
+      taker-weight: 35
+      divergence-weight: 25
+      taker-bullish-min: 1.0
+
   schedule:
     # JVM 固定 Asia/Shanghai 运行 (见 AnalysisApplication)。以下 cron 均为北京时间。
     daily-analysis: "0 5 8 * * ?"

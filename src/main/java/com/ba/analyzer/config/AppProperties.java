@@ -65,6 +65,7 @@ public class AppProperties {
         private AltcoinPumpAlertConfig altcoinPumpAlert = new AltcoinPumpAlertConfig();
         private ReversalLongConfig reversalLong = new ReversalLongConfig();
         private CompositeScoreConfig compositeScore = new CompositeScoreConfig();
+        private LongShortRatioConfig longShortRatio = new LongShortRatioConfig();
     }
 
     @Data
@@ -237,6 +238,19 @@ public class AppProperties {
         private int venueWeight = 0;    // 预留, 无数据源
         // 价格"早期"窗口上限(%): 24h涨幅超此值价格分递减(防追高)
         private double earlyPriceMaxPct = 15.0;
+    }
+
+    @Data
+    public static class LongShortRatioConfig {
+        private boolean enabled = true;     // 默认启用, 随 short-term 批次每5分钟跑
+        private String period = "1h";       // LSR 统计周期 (库内默认 1h)
+        private int lookback = 12;           // 与多少根之前比较 (变化率/背离)
+        private int minScore = 60;           // 低于此分不输出
+        // 维度权重 (合计 100)
+        private int topPositionWeight = 40;  // 大户持仓多空比抬升
+        private int takerWeight = 35;        // taker 主动买盘占优
+        private int divergenceWeight = 25;   // 大户进 + 散户退 背离
+        private double takerBullishMin = 1.0; // taker 买卖比超过此值算买盘占优
     }
 
     @Data

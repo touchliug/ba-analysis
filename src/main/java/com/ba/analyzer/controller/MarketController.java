@@ -64,4 +64,59 @@ public class MarketController {
         latest.sort(Comparator.comparingDouble(LongShortRatioData::getRatioValue).reversed());
         return ResponseEntity.ok(latest.stream().limit(lim).toList());
     }
+
+    // ---- 24h 行情快照 ----
+
+    @GetMapping("/ticker/{symbol}")
+    public ResponseEntity<Ticker24hData> ticker(@PathVariable String symbol) {
+        Ticker24hData t = store.getTicker24h(symbol);
+        return t == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(t);
+    }
+
+    @GetMapping("/ticker/gainers")
+    public ResponseEntity<List<Ticker24hData>> tickerGainers(
+            @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(topTickers(
+                Comparator.comparingDouble(Ticker24hData::getPriceChangePercentNum).reversed(), limit));
+    }
+
+    @GetMapping("/ticker/losers")
+    public ResponseEntity<List<Ticker24hData>> tickerLosers(
+            @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(topTickers(
+                Comparator.comparingDouble(Ticker24hData::getPriceChangePercentNum), limit));
+    }
+
+    @GetMapping("/ticker/volume")
+    public ResponseEntity<List<Ticker24hData>> tickerVolume(
+            @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(topTickers(
+                Comparator.comparingDouble(Ticker24hData::getQuoteVolumeNum).reversed(), limit));
+    }
+
+    private List<Ticker24hData> topTickers(Comparator<Ticker24hData> cmp, int limit) {
+        List<Ticker24hData> all = store.getAllTicker24h();
+        all.sort(cmp);
+        return all.stream().limit(clampLimit(limit)).toList();
+    }
+
+    // ---- 标记价/资金费快照 ----
+
+    @GetMapping("/premium/{symbol}")
+    public ResponseEntity<PremiumIndexData> premium(@PathVariable String symbol) {
+        PremiumIndexData p = store.getPremiumIndex(symbol);
+        return p == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(p);
+    }
+
+    @GetMapping("/premium/funding-ranking")
+    public ResponseEntity<List<PremiumIndexData>> fundingRanking(
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "desc") String order) {
+        List<PremiumIndexData> all = store.getAllPremiumIndex();
+        Comparator<PremiumIndexData> cmp =
+                Comparator.comparingDouble(PremiumIndexData::getLastFundingRateNum);
+        if (!"asc".equalsIgnoreCase(order)) cmp = cmp.reversed();
+        all.sort(cmp);
+        return ResponseEntity.ok(all.stream().limit(clampLimit(limit)).toList());
+    }
 }

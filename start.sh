@@ -10,6 +10,9 @@ JAVA_OPTS='-Djava.net.preferIPv4Stack=true'
 
 cd "$(dirname "$0")"
 
+# 加载本地 .env (不入库), 提供 DB_PASSWORD 等敏感连接信息
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
+
 pid_of() { pgrep -f "java .*${JAR}" || true; }
 
 start() {

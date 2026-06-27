@@ -9,3 +9,5 @@ data/analyzer.db
 reports/
 __pycache__/
 *.pyc
+.env
+analysis.log

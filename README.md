@@ -23,8 +23,17 @@
 ## 运行
 ```bash
 mvn package -DskipTests
-./start.sh            # 后台启动; 端口 8080
+./start.sh cert       # 首次: 生成自签名证书 keystore.p12 (不入库)
+./start.sh setcap     # 非 root 部署: 授权 java 绑定 443 (一次性; 或用 sudo 启动)
+./start.sh            # 后台启动; HTTPS, 端口 443
 ./start.sh log
 ./start.sh status
 ```
-无需出网,只需能连到 MySQL。
+无需出网,只需能连到 MySQL。访问 `https://<host>/`(自签名证书,浏览器首次需手动信任)。
+
+### HTTPS / 端口 443 说明
+- SSL 配置在 `application.yml` 的 `server.ssl.*`,读 `./keystore.p12`(自签名,`.gitignore` 已忽略,不入库)。
+- 证书生成命令封装在 `./start.sh cert`(`keytool` 生成 PKCS12,SAN 含公网 IP + localhost,有效期 10 年)。
+- 443 是特权端口:非 root 启动需先 `./start.sh setcap`(底层 `setcap cap_net_bind_service`),或直接 `sudo ./start.sh`。生产更推荐用 Nginx 反代在 443 终止 SSL。
+- 自签名证书浏览器会提示"不安全";要消除需换正式 CA 证书(如 Let's Encrypt),把 `key-store` 指向对应密钥库即可。
+- 敏感口令(`DB_PASSWORD`、`SSL_KEYSTORE_PASSWORD`)放本地 `.env`(不入库),`start.sh` 启动时自动加载;`SSL_KEYSTORE_PASSWORD` 默认 `changeit`。

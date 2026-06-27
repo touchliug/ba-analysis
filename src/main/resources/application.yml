@@ -3,7 +3,13 @@
 # ============================================================
 
 server:
-  port: 8080
+  port: 443
+  ssl:
+    enabled: true
+    key-store: file:./keystore.p12          # 自签名证书 (keytool 生成, 不入库)
+    key-store-type: PKCS12
+    key-store-password: ${SSL_KEYSTORE_PASSWORD:changeit}
+    key-alias: ba-analysis
 
 spring:
   mvc:
@@ -72,7 +78,7 @@ binance:
       volume-surge-ratio: 1.0
 
     short-term-rise:
-      enabled: true
+      enabled: false
       interval: 5m
       period: 6
       threshold-percent: 3
@@ -100,7 +106,7 @@ binance:
       volume-surge-ratio: 1.0
 
     oi-consecutive-rise:
-      enabled: true
+      enabled: false
       days: 5
       max-price-rise-percent: 7
       volume-surge-ratio: 1.0
@@ -138,7 +144,7 @@ binance:
       quality-min-score: 55
 
     composite-score:
-      enabled: true
+      enabled: false
       min-score: 50
       oi-weight: 25
       price-weight: 20
@@ -149,7 +155,7 @@ binance:
       early-price-max-pct: 15.0
 
     long-short-ratio:
-      enabled: true
+      enabled: false
       period: 1h
       lookback: 12
       min-score: 60

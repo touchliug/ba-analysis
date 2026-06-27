@@ -34,7 +34,7 @@ public class OIMultiTFAnalyzer implements Analyzer {
     private static final double ANOMALY_OI_D30 = 30.0;
 
     @Override public String getName() { return "OI多周期"; }
-    @Override public boolean isEnabled() { return true; }
+    @Override public boolean isEnabled() { return false; }
     @Override public boolean requiresIntradayData() { return true; }
 
     @Override

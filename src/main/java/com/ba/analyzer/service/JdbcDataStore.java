@@ -227,6 +227,7 @@ public class JdbcDataStore {
         p.setLastFundingRate(rs.getString("last_funding_rate"));
         p.setNextFundingTime(rs.getLong("next_funding_time"));
         p.setInterestRate(rs.getString("interest_rate"));
+        // 注: `time` 是 MySQL 保留字, 任何 WHERE/ORDER BY 引用它时需反引号转义
         p.setTime(rs.getLong("time"));
         return p;
     }

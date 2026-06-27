@@ -2,7 +2,10 @@ package com.ba.analyzer.service;
 
 import com.ba.analyzer.model.FundingRateData;
 import com.ba.analyzer.model.KlineData;
+import com.ba.analyzer.model.LongShortRatioData;
 import com.ba.analyzer.model.OpenInterestData;
+import com.ba.analyzer.model.PremiumIndexData;
+import com.ba.analyzer.model.Ticker24hData;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -87,6 +90,76 @@ public class JdbcDataStore {
         }, symbol, limit);
     }
 
+    // ======================== Long/Short Ratio (read-only) ========================
+
+    public List<LongShortRatioData> getLongShortRatio(String symbol, String ratioType, String period, int limit) {
+        String sql = "SELECT * FROM long_short_ratio WHERE symbol=? AND ratio_type=? AND period=? " +
+                "ORDER BY `timestamp` DESC LIMIT ?";
+        List<LongShortRatioData> result = jdbc.query(sql, this::mapLsr, symbol, ratioType, period, limit);
+        Collections.reverse(result); // 时间升序, 末尾为最新 (与 getKlines 一致)
+        return result;
+    }
+
+    public Map<String, List<LongShortRatioData>> getLongShortRatioBatch(
+            List<String> symbols, String ratioType, String period, int limit) {
+        Map<String, List<LongShortRatioData>> result = new HashMap<>();
+        for (String symbol : symbols) {
+            List<LongShortRatioData> rows = getLongShortRatio(symbol, ratioType, period, limit);
+            if (!rows.isEmpty()) result.put(symbol, rows);
+        }
+        return result;
+    }
+
+    /** 全市场每个 symbol 取该 ratioType+period 的最新一条 (供 ranking 接口)。 */
+    public List<LongShortRatioData> getLatestLongShortRatioAll(String ratioType, String period) {
+        String sql = "SELECT l.* FROM long_short_ratio l " +
+                "JOIN (SELECT symbol, MAX(`timestamp`) mt FROM long_short_ratio " +
+                "      WHERE ratio_type=? AND period=? GROUP BY symbol) g " +
+                "ON l.symbol=g.symbol AND l.`timestamp`=g.mt " +
+                "WHERE l.ratio_type=? AND l.period=?";
+        return jdbc.query(sql, this::mapLsr, ratioType, period, ratioType, period);
+    }
+
+    // ======================== Ticker 24h (read-only snapshot) ========================
+
+    public List<Ticker24hData> getAllTicker24h() {
+        return jdbc.query("SELECT * FROM ticker_24h", this::mapTicker);
+    }
+
+    public Ticker24hData getTicker24h(String symbol) {
+        List<Ticker24hData> rows = jdbc.query(
+                "SELECT * FROM ticker_24h WHERE symbol=?", this::mapTicker, symbol);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    // ======================== Premium Index (read-only snapshot) ========================
+
+    public List<PremiumIndexData> getAllPremiumIndex() {
+        return jdbc.query("SELECT * FROM premium_index", this::mapPremium);
+    }
+
+    public PremiumIndexData getPremiumIndex(String symbol) {
+        List<PremiumIndexData> rows = jdbc.query(
+                "SELECT * FROM premium_index WHERE symbol=?", this::mapPremium, symbol);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    // ======================== Symbols (read-only) ========================
+
+    /** 在交易的 USDT 永续合约名 (规范来源, 供 SymbolService)。 */
+    public List<String> getTradingSymbolNames() {
+        return jdbc.queryForList(
+                "SELECT symbol FROM symbols WHERE status='TRADING' AND quote_asset='USDT' ORDER BY symbol",
+                String.class);
+    }
+
+    /** 兜底: 从 klines 推导币种 (symbols 表为空时用)。 */
+    public List<String> getSymbolNamesFromKlines() {
+        return jdbc.queryForList(
+                "SELECT DISTINCT symbol FROM klines WHERE `interval`='1d' ORDER BY symbol",
+                String.class);
+    }
+
     // ======================== Row Mappers ========================
 
     private KlineData mapKline(ResultSet rs, int rowNum) throws SQLException {
@@ -113,5 +186,48 @@ public class JdbcDataStore {
         oi.setSumOpenInterest(rs.getString("sum_open_interest"));
         oi.setSumOpenInterestValue(rs.getString("sum_open_interest_value"));
         return oi;
+    }
+
+    private LongShortRatioData mapLsr(ResultSet rs, int rowNum) throws SQLException {
+        LongShortRatioData d = new LongShortRatioData();
+        d.setSymbol(rs.getString("symbol"));
+        d.setRatioType(rs.getString("ratio_type"));
+        d.setPeriod(rs.getString("period"));
+        d.setTimestamp(rs.getLong("timestamp"));
+        d.setLongShortRatio(rs.getString("long_short_ratio"));
+        d.setLongValue(rs.getString("long_value"));
+        d.setShortValue(rs.getString("short_value"));
+        return d;
+    }
+
+    private Ticker24hData mapTicker(ResultSet rs, int rowNum) throws SQLException {
+        Ticker24hData t = new Ticker24hData();
+        t.setSymbol(rs.getString("symbol"));
+        t.setPriceChangePercent(rs.getString("price_change_percent"));
+        t.setLastPrice(rs.getString("last_price"));
+        t.setOpenPrice(rs.getString("open_price"));
+        t.setHighPrice(rs.getString("high_price"));
+        t.setLowPrice(rs.getString("low_price"));
+        t.setWeightedAvgPrice(rs.getString("weighted_avg_price"));
+        t.setVolume(rs.getString("volume"));
+        t.setQuoteVolume(rs.getString("quote_volume"));
+        t.setTradeCount(rs.getLong("trade_count"));
+        t.setOpenTime(rs.getLong("open_time"));
+        t.setCloseTime(rs.getLong("close_time"));
+        t.setCapturedAt(rs.getLong("captured_at"));
+        return t;
+    }
+
+    private PremiumIndexData mapPremium(ResultSet rs, int rowNum) throws SQLException {
+        PremiumIndexData p = new PremiumIndexData();
+        p.setSymbol(rs.getString("symbol"));
+        p.setMarkPrice(rs.getString("mark_price"));
+        p.setIndexPrice(rs.getString("index_price"));
+        p.setEstimatedSettlePrice(rs.getString("estimated_settle_price"));
+        p.setLastFundingRate(rs.getString("last_funding_rate"));
+        p.setNextFundingTime(rs.getLong("next_funding_time"));
+        p.setInterestRate(rs.getString("interest_rate"));
+        p.setTime(rs.getLong("time"));
+        return p;
     }
 }

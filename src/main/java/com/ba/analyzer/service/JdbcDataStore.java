@@ -8,10 +8,12 @@ import com.ba.analyzer.model.PremiumIndexData;
 import com.ba.analyzer.model.Ticker24hData;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Service;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -33,6 +35,23 @@ public class JdbcDataStore {
         this.jdbc = jdbc;
     }
 
+    /** 单条 IN 查询最多带多少个 symbol (超过则分批, 避免占位符过多)。 */
+    static final int IN_CHUNK = 500;
+
+    /** 生成 n 个 "?" 占位符, 逗号分隔 (用于 IN 子句)。 */
+    static String inPlaceholders(int n) {
+        return String.join(",", Collections.nCopies(n, "?"));
+    }
+
+    /** 把列表按 size 切片 (IN 列表分批)。 */
+    static <T> List<List<T>> partition(List<T> list, int size) {
+        List<List<T>> parts = new ArrayList<>();
+        for (int i = 0; i < list.size(); i += size) {
+            parts.add(list.subList(i, Math.min(i + size, list.size())));
+        }
+        return parts;
+    }
+
     // ======================== Kline (read-only) ========================
 
     public List<KlineData> getKlines(String symbol, String interval, int limit) {
@@ -42,11 +61,26 @@ public class JdbcDataStore {
         return result;
     }
 
+    /**
+     * 批量取多 symbol 各自最近 limit 根 K 线 —— 单条 IN + 窗口函数, 避免逐 symbol 的 N+1 查询
+     * (远端库下 529 次往返曾耗时 ~130s, 现合并为按 IN_CHUNK 分批的少数几条)。
+     * 每 symbol 结果按 open_time 升序 (末尾最新), 与 {@link #getKlines} 一致。
+     */
     public Map<String, List<KlineData>> getKlinesBatch(List<String> symbols, String interval, int limit) {
         Map<String, List<KlineData>> result = new HashMap<>();
-        for (String symbol : symbols) {
-            List<KlineData> klines = getKlines(symbol, interval, limit);
-            if (!klines.isEmpty()) result.put(symbol, klines);
+        if (symbols == null || symbols.isEmpty()) return result;
+        for (List<String> chunk : partition(symbols, IN_CHUNK)) {
+            String sql = "SELECT * FROM (SELECT k.*, ROW_NUMBER() OVER "
+                    + "(PARTITION BY symbol ORDER BY open_time DESC) rn "
+                    + "FROM klines k WHERE `interval`=? AND symbol IN (" + inPlaceholders(chunk.size()) + ")) t "
+                    + "WHERE t.rn <= ? ORDER BY symbol, open_time ASC";
+            Object[] args = new Object[chunk.size() + 2];
+            args[0] = interval;
+            for (int i = 0; i < chunk.size(); i++) args[i + 1] = chunk.get(i);
+            args[chunk.size() + 1] = limit;
+            jdbc.query(sql, (RowCallbackHandler) rs ->
+                    result.computeIfAbsent(rs.getString("symbol"), s -> new ArrayList<>())
+                            .add(mapKline(rs, 0)), args);
         }
         return result;
     }
@@ -68,11 +102,22 @@ public class JdbcDataStore {
         return getOpenInterestBatch(symbols, "1d", days);
     }
 
+    /** 批量取多 symbol 各自最近 limit 条 OI —— 单条 IN + 窗口函数 (同 {@link #getKlinesBatch})。 */
     public Map<String, List<OpenInterestData>> getOpenInterestBatch(List<String> symbols, String period, int limit) {
         Map<String, List<OpenInterestData>> result = new HashMap<>();
-        for (String symbol : symbols) {
-            List<OpenInterestData> oi = getOpenInterestHistory(symbol, period, limit);
-            if (!oi.isEmpty()) result.put(symbol, oi);
+        if (symbols == null || symbols.isEmpty()) return result;
+        for (List<String> chunk : partition(symbols, IN_CHUNK)) {
+            String sql = "SELECT * FROM (SELECT o.*, ROW_NUMBER() OVER "
+                    + "(PARTITION BY symbol ORDER BY `timestamp` DESC) rn "
+                    + "FROM open_interest o WHERE period=? AND symbol IN (" + inPlaceholders(chunk.size()) + ")) t "
+                    + "WHERE t.rn <= ? ORDER BY symbol, `timestamp` ASC";
+            Object[] args = new Object[chunk.size() + 2];
+            args[0] = period;
+            for (int i = 0; i < chunk.size(); i++) args[i + 1] = chunk.get(i);
+            args[chunk.size() + 1] = limit;
+            jdbc.query(sql, (RowCallbackHandler) rs ->
+                    result.computeIfAbsent(rs.getString("symbol"), s -> new ArrayList<>())
+                            .add(mapOi(rs, 0)), args);
         }
         return result;
     }
@@ -100,12 +145,25 @@ public class JdbcDataStore {
         return result;
     }
 
+    /** 批量取多 symbol 各自最近 limit 条多空比 —— 单条 IN + 窗口函数 (同 {@link #getKlinesBatch})。 */
     public Map<String, List<LongShortRatioData>> getLongShortRatioBatch(
             List<String> symbols, String ratioType, String period, int limit) {
         Map<String, List<LongShortRatioData>> result = new HashMap<>();
-        for (String symbol : symbols) {
-            List<LongShortRatioData> rows = getLongShortRatio(symbol, ratioType, period, limit);
-            if (!rows.isEmpty()) result.put(symbol, rows);
+        if (symbols == null || symbols.isEmpty()) return result;
+        for (List<String> chunk : partition(symbols, IN_CHUNK)) {
+            String sql = "SELECT * FROM (SELECT l.*, ROW_NUMBER() OVER "
+                    + "(PARTITION BY symbol ORDER BY `timestamp` DESC) rn "
+                    + "FROM long_short_ratio l WHERE ratio_type=? AND period=? "
+                    + "AND symbol IN (" + inPlaceholders(chunk.size()) + ")) t "
+                    + "WHERE t.rn <= ? ORDER BY symbol, `timestamp` ASC";
+            Object[] args = new Object[chunk.size() + 3];
+            args[0] = ratioType;
+            args[1] = period;
+            for (int i = 0; i < chunk.size(); i++) args[i + 2] = chunk.get(i);
+            args[chunk.size() + 2] = limit;
+            jdbc.query(sql, (RowCallbackHandler) rs ->
+                    result.computeIfAbsent(rs.getString("symbol"), s -> new ArrayList<>())
+                            .add(mapLsr(rs, 0)), args);
         }
         return result;
     }

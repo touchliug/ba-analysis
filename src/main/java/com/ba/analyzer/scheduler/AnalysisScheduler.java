@@ -51,25 +51,27 @@ public class AnalysisScheduler {
 
     @Scheduled(cron = "${binance.schedule.daily-analysis}")
     public void runDailyAnalysis() {
-        log.info("=== Scheduled: Running daily analysis ===");
-        List<String> symbols = refreshSymbols();
-        runAnalyzers(symbols, false);
+        runBatch(false, "daily");
     }
 
     @Scheduled(cron = "${binance.schedule.short-term-analysis}")
     public void runShortTermAnalysis() {
-        log.info("=== Scheduled: Running short-term analysis ===");
-        List<String> symbols = refreshSymbols();
-        runAnalyzers(symbols, true);
+        runBatch(true, "short-term");
     }
 
-    private void runAnalyzers(List<String> symbols, boolean intraday) {
-        for (Analyzer analyzer : analyzers) {
-            if (analyzer.requiresIntradayData() != intraday) continue;
-            if (!analyzer.isEnabled()) {
-                log.info("Analyzer {} is disabled, skipping", analyzer.getName());
-                continue;
-            }
+    /** 批次内无启用分析器时直接返回: 不查库刷新币种、不打逐分析器的跳过日志 (当前默认全禁用, 避免空转)。 */
+    private void runBatch(boolean intraday, String batchName) {
+        List<Analyzer> enabled = analyzers.stream()
+                .filter(a -> a.requiresIntradayData() == intraday)
+                .filter(Analyzer::isEnabled)
+                .toList();
+        if (enabled.isEmpty()) {
+            log.debug("No enabled {} analyzers, skipping batch", batchName);
+            return;
+        }
+        log.info("=== Scheduled: Running {} analysis ({} analyzers) ===", batchName, enabled.size());
+        List<String> symbols = refreshSymbols();
+        for (Analyzer analyzer : enabled) {
             try {
                 log.info("Running analyzer: {}", analyzer.getName());
                 AnalysisReport report = analyzer.analyze(symbols);

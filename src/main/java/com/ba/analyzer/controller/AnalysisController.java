@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 分析功能Web API控制器
- * 提供以下REST接口：
+ * 提供以下REST接口 (enabled 配置只控制定时批次, 手动触发不受限)：
  * - GET  /api/analysis/list          列出所有分析器名称
  * - GET  /api/analysis/run/{name}    异步执行指定分析器，立即返回任务状态
  * - POST /api/analysis/sync/{name}   同步执行指定分析器，支持query参数和JSON body两种传参方式
@@ -59,14 +59,8 @@ public class AnalysisController {
             return ResponseEntity.notFound().build();
         }
 
-        if (!analyzer.isEnabled()) {
-            Map<String, Object> result = new HashMap<>();
-            result.put("status", "disabled");
-            result.put("analyzer", name);
-            result.put("message", "该分析器已禁用，请在配置中启用");
-            return ResponseEntity.ok(result);
-        }
-
+        // enabled 开关只控制定时批次是否自动运行; 手动触发(/run 与 /sync)对禁用的分析器同样放行,
+        // 两个端点语义一致 —— 此前 /run 拦禁用而 /sync 不拦, 前端实际一直在"绕过"该检查。
         if (analysisScheduler.isRunning(name)) {
             Map<String, Object> result = new HashMap<>();
             result.put("status", "running");

@@ -224,17 +224,6 @@ public class AnalysisController {
                 params.put("lowPricePercentile", Map.of("type", "double", "description", "低价分位数(0-100)", "default", 30));
                 yield params;
             }
-            case "短期急涨" -> {
-                params.put("interval", Map.of("type", "string", "description", "K线间隔(1m/5m/15m/30m/1h等)", "default", "5m"));
-                params.put("period", Map.of("type", "int", "description", "时间段数量", "default", 6));
-                params.put("thresholdPercent", Map.of("type", "double", "description", "涨幅阈值百分比", "default", 3));
-                params.put("minScore", Map.of("type", "int", "description", "进场最低评分(0-170)", "default", 70));
-                params.put("launchBodyRatio", Map.of("type", "double", "description", "起爆检测：实体占比阈值", "default", 0.6));
-                params.put("launchClosePos", Map.of("type", "double", "description", "起爆检测：收盘位置阈值", "default", 0.8));
-                params.put("launchVolRatio", Map.of("type", "double", "description", "起爆检测：单根量比阈值", "default", 3.0));
-                params.put("takerBuyRatio", Map.of("type", "double", "description", "主动买入比最低阈值", "default", 0.55));
-                yield params;
-            }
             case "底部吸筹" -> {
                 params.put("days", Map.of("type", "int", "description", "分析窗口(天)", "default", 14));
                 params.put("minScore", Map.of("type", "int", "description", "最低吸筹评分", "default", 60));
@@ -259,15 +248,6 @@ public class AnalysisController {
                 params.put("stopLossPct", Map.of("type", "double", "description", "止损点位%", "default", 4.0));
                 params.put("volumeConfirmRatio", Map.of("type", "double", "description", "反转日量比阈值(1.0=不过滤)", "default", 1.0));
                 params.put("qualityMinScore", Map.of("type", "int", "description", "反转质量分最低分(0-100,0=不过滤;回测建议55)", "default", 0));
-                yield params;
-            }
-            case "综合评分" -> {
-                params.put("minScore", Map.of("type", "int", "description", "最低综合分(0-100)", "default", 50));
-                params.put("oiWeight", Map.of("type", "int", "description", "OI维度权重", "default", 25));
-                params.put("priceWeight", Map.of("type", "int", "description", "价格维度权重", "default", 20));
-                params.put("fundingWeight", Map.of("type", "int", "description", "资金费率维度权重", "default", 15));
-                params.put("volumeWeight", Map.of("type", "int", "description", "量能维度权重", "default", 15));
-                params.put("earlyPriceMaxPct", Map.of("type", "double", "description", "早期价格窗口上限%(超出价格分递减,防追高)", "default", 15.0));
                 yield params;
             }
             case "山寨币暴涨预警" -> {

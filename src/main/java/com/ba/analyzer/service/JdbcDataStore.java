@@ -1,6 +1,5 @@
 package com.ba.analyzer.service;
 
-import com.ba.analyzer.model.FundingRateData;
 import com.ba.analyzer.model.KlineData;
 import com.ba.analyzer.model.LongShortRatioData;
 import com.ba.analyzer.model.OpenInterestData;
@@ -120,19 +119,6 @@ public class JdbcDataStore {
                             .add(mapOi(rs, 0)), args);
         }
         return result;
-    }
-
-    // ======================== Funding Rate (read-only) ========================
-
-    public List<FundingRateData> getFundingRates(String symbol, int limit) {
-        String sql = "SELECT * FROM funding_rate WHERE symbol=? ORDER BY funding_time DESC LIMIT ?";
-        return jdbc.query(sql, (rs, n) -> {
-            FundingRateData fr = new FundingRateData();
-            fr.setSymbol(rs.getString("symbol"));
-            fr.setFundingTime(rs.getLong("funding_time"));
-            fr.setFundingRate(rs.getString("funding_rate"));
-            return fr;
-        }, symbol, limit);
     }
 
     // ======================== Long/Short Ratio (read-only) ========================

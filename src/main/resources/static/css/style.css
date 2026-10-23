@@ -452,18 +452,6 @@ body {
     margin-top: 10px;
 }
 
-.poll-toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: #666;
-    cursor: pointer;
-    user-select: none;
-}
-
-.poll-toggle input[type="checkbox"] { cursor: pointer; }
-
 .page-title {
     font-size: 18px;
     font-weight: 600;

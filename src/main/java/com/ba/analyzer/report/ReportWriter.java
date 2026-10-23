@@ -24,7 +24,6 @@ public class ReportWriter {
             "缓涨币", "slow_rise",
             "价涨仓增", "price_drop_oi_rise",
             "低位插针", "low_price_consolidation",
-            "短期急涨", "short_term_rise",
             "底部吸筹", "bullish_accumulation",
             "多空比异动", "long_short_ratio"
     );

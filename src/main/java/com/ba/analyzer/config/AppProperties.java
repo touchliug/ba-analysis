@@ -33,7 +33,6 @@ public class AppProperties {
         private SlowRiseConfig slowRise = new SlowRiseConfig();
         private PriceDropOiRiseConfig priceDropOiRise = new PriceDropOiRiseConfig();
         private LowPriceConsolidationConfig lowPriceConsolidation = new LowPriceConsolidationConfig();
-        private ShortTermRiseConfig shortTermRise = new ShortTermRiseConfig();
         private BullishAccumulationConfig bullishAccumulation = new BullishAccumulationConfig();
         private FirstYinDayConfig firstYinDay = new FirstYinDayConfig();
         private OiConsecutiveRiseConfig oiConsecutiveRise = new OiConsecutiveRiseConfig();
@@ -41,7 +40,6 @@ public class AppProperties {
         private NDayLowConfig nDayLow = new NDayLowConfig();
         private AltcoinPumpAlertConfig altcoinPumpAlert = new AltcoinPumpAlertConfig();
         private ReversalLongConfig reversalLong = new ReversalLongConfig();
-        private CompositeScoreConfig compositeScore = new CompositeScoreConfig();
         private LongShortRatioConfig longShortRatio = new LongShortRatioConfig();
     }
 
@@ -98,20 +96,6 @@ public class AppProperties {
         private double maxPriceChangePercent = 10;
         private double lowPricePercentile = 30;
         private double volumeSurgeRatio = 1.0;
-    }
-
-    @Data
-    public static class ShortTermRiseConfig {
-        private boolean enabled = true;
-        private String interval = "5m";
-        private int period = 6;
-        private double thresholdPercent = 10;
-        private double volumeSurgeRatio = 1.0;
-        private int minScore = 70;
-        private double launchBodyRatio = 0.6;
-        private double launchClosePos = 0.8;
-        private double launchVolRatio = 3.0;
-        private double takerBuyRatio = 0.55;
     }
 
     @Data
@@ -199,22 +183,6 @@ public class AppProperties {
         // 反转质量评分最低分(0-100): 低于此分的信号过滤掉 (0=不过滤,仅排序)。
         // 回测(2739笔)显示: >=55胜率55%, >=65胜率60%, >=75胜率62%。生产默认55。
         private int qualityMinScore = 55;
-    }
-
-    @Data
-    public static class CompositeScoreConfig {
-        private boolean enabled = true;
-        // 最低综合分(0-100): 低于此分不输出
-        private int minScore = 50;
-        // 各维度权重 (你有OI/价格/费率/量能4维, 社媒/多交易所暂为扩展位=0)
-        private int oiWeight = 25;
-        private int priceWeight = 20;
-        private int fundingWeight = 15;
-        private int volumeWeight = 15;
-        private int socialWeight = 0;   // 预留, 无数据源
-        private int venueWeight = 0;    // 预留, 无数据源
-        // 价格"早期"窗口上限(%): 24h涨幅超此值价格分递减(防追高)
-        private double earlyPriceMaxPct = 15.0;
     }
 
     @Data

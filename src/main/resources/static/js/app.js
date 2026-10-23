@@ -127,8 +127,6 @@ const state = {
     latestReports: {},
     currentView: 'overview',
     currentAnalyzer: null,
-    pollTimer: null,
-    pollEnabled: true,
     // 行情视图参数
     lsrType: 'TOP_POSITION',
     marketLimit: 50,
@@ -272,7 +270,6 @@ async function init() {
 
     renderSidebar();
     renderOverview();
-    startPolling();
 
     document.getElementById('btn-refresh-symbols').addEventListener('click', async () => {
         const btn = document.getElementById('btn-refresh-symbols');
@@ -349,14 +346,6 @@ async function renderDetail(name) {
         return;
     }
 
-    const isShortTerm = name === '短期急涨';
-    const pollChecked = state.pollEnabled ? 'checked' : '';
-    const pollSection = isShortTerm ? `
-        <label class="poll-toggle">
-            <input type="checkbox" id="poll-checkbox" ${pollChecked}>
-            自动刷新 (30s)
-        </label>` : '';
-
     let paramsHtml = '';
     if (paramSpec && paramSpec.params) {
         for (const [key, spec] of Object.entries(paramSpec.params)) {
@@ -384,7 +373,6 @@ async function renderDetail(name) {
             <div class="detail-actions">
                 <button class="btn-primary" id="btn-execute">执行分析</button>
                 <button class="btn-default" id="btn-reset">重置参数</button>
-                ${pollSection}
             </div>
             <div id="execute-error"></div>
         </div>
@@ -570,17 +558,6 @@ function bindDetailEvents(name, paramSpec) {
         });
     }
 
-    const pollCheckbox = document.getElementById('poll-checkbox');
-    if (pollCheckbox) {
-        pollCheckbox.addEventListener('change', () => {
-            state.pollEnabled = pollCheckbox.checked;
-            if (state.pollEnabled) {
-                startPolling();
-            } else {
-                stopPolling();
-            }
-        });
-    }
 }
 
 /* ===== Market: 多空比 (排名 + 单币快照) ===== */
@@ -775,36 +752,6 @@ async function loadFunding() {
                 <tbody>${trs}</tbody></table></div>`;
     } catch (e) {
         box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
-    }
-}
-
-/* ===== Polling ===== */
-function startPolling() {
-    stopPolling();
-    state.pollTimer = setInterval(async () => {
-        if (!state.pollEnabled) return;
-        try {
-            const report = await api.latestByName('短期急涨');
-            if (report) {
-                state.latestReports['短期急涨'] = report;
-                renderSidebar();
-                if (state.currentView === 'detail' && state.currentAnalyzer === '短期急涨') {
-                    renderResultTable(report);
-                }
-                if (state.currentView === 'overview') {
-                    renderOverview();
-                }
-            }
-        } catch (e) {
-            console.warn('Poll failed', e);
-        }
-    }, 30000);
-}
-
-function stopPolling() {
-    if (state.pollTimer) {
-        clearInterval(state.pollTimer);
-        state.pollTimer = null;
     }
 }
 

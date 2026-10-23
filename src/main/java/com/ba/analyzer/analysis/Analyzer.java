@@ -29,9 +29,9 @@ public interface Analyzer {
     }
 
     /**
-     * 是否依赖日内(5m级)数据。
-     * 返回true的分析器在short-term批次(每5分钟,已同步5m OI)运行;
-     * 返回false的在daily批次(每天,预加载日线)运行。
+     * 是否依赖日内高频数据。
+     * 返回true的分析器在short-term批次(每5分钟)运行, 如多空比异动(1h LSR);
+     * 返回false的在daily批次(每天)运行。
      */
     default boolean requiresIntradayData() {
         return false;

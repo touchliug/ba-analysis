@@ -1,13 +1,17 @@
 # ba-analysis — 币安数据分析服务
 
-只读 MySQL 中的 K 线/持仓量/资金费率,运行各类分析器并对外提供查询接口(端口 8080)。
+只读 MySQL 中的 K 线/持仓量/多空比,运行各类分析器并对外提供查询接口。
 **从不访问币安 API。**
 
 ## 职责
-- 20 个分析器(连涨、急涨、OI 连增、量价背离、综合评分等)
-- 多周期特征引擎 `MarketFeatureService`
-- Web 接口 `AnalysisController`、报告输出 `ReportWriter`
-- 币种全集从库推导:`SELECT DISTINCT symbol FROM klines`(同步服务写了哪些币就分析哪些)
+- 15 个分析器(连涨、OI 连增、底部吸筹、山寨币暴涨预警、反转做多、多空比异动等),
+  默认全部禁用,经网页或 API 手动触发
+- 行情查询接口 `MarketController`(多空比/涨跌幅/成交额/资金费率排行)
+- 分析接口 `AnalysisController`、报告输出 `ReportWriter`
+- 币种全集从库推导:`symbols` 表为主、`klines` 去重兜底(同步服务写了哪些币就分析哪些)
+
+> 5m 日内链路(短期急涨/综合评分/MarketFeatureService)已移除:ba-sync 不同步 5m 数据,
+> 该链路只能产出空报告。若将来需要,先在 ba-sync 补 5m K线/OI 同步再恢复。
 
 ## 与 ba-sync 的关系
 两个服务**完全独立**,仅通过 MySQL 交换数据。本服务只读,数据的拉取与写入、schema 的创建
@@ -17,8 +21,8 @@
 ## 定时任务(application.yml `binance.schedule`,北京时间)
 | 任务 | cron | 说明 |
 |---|---|---|
-| daily-analysis | `0 5 8 * * ?` | 每日运行非日内分析器 |
-| short-term-analysis | `0 */5 * * * ?` | 每 5 分钟运行日内数据分析器 |
+| daily-analysis | `0 5 8 * * ?` | 每日运行日线级分析器(有启用的才跑) |
+| short-term-analysis | `0 */5 * * * ?` | 每 5 分钟运行日内批次(现仅多空比异动;有启用的才跑) |
 
 ## 运行
 ```bash

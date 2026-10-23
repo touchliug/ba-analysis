@@ -77,18 +77,6 @@ binance:
       low-price-percentile: 30
       volume-surge-ratio: 1.0
 
-    short-term-rise:
-      enabled: false
-      interval: 5m
-      period: 6
-      threshold-percent: 3
-      volume-surge-ratio: 1.0
-      min-score: 70
-      launch-body-ratio: 0.6
-      launch-close-pos: 0.8
-      launch-vol-ratio: 3.0
-      taker-buy-ratio: 0.55
-
     bullish-accumulation:
       enabled: false
       days: 14
@@ -142,17 +130,6 @@ binance:
       stop-loss-pct: 4.0
       volume-confirm-ratio: 1.0
       quality-min-score: 55
-
-    composite-score:
-      enabled: false
-      min-score: 50
-      oi-weight: 25
-      price-weight: 20
-      funding-weight: 15
-      volume-weight: 15
-      social-weight: 0
-      venue-weight: 0
-      early-price-max-pct: 15.0
 
     long-short-ratio:
       enabled: false

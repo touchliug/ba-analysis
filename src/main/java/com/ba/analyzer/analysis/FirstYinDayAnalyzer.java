@@ -32,11 +32,31 @@ import java.util.Map;
 @Component
 public class FirstYinDayAnalyzer extends AbstractKlineAnalyzer {
 
-    private static final long DAY_MS = 86_400_000L;
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("MM-dd");
 
     public FirstYinDayAnalyzer(DataFetchService dataFetchService, AppProperties appProperties) {
         super(dataFetchService, appProperties);
+    }
+
+    /** 需要当前未收盘根的开盘价作入场价, 自行区分收盘/未收盘。 */
+    @Override
+    protected boolean closedCandlesOnly() {
+        return false;
+    }
+
+    @Override
+    public Map<String, Object> getParamSpec() {
+        var c = appProperties.getAnalysis().getFirstYinDay();
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("days", Analyzer.param("int", "首阴前最少连续阳线天数", c.getDays()));
+        s.put("minTotalRisePercent", Analyzer.param("double", "连涨累计涨幅下限%(复利)", c.getMinTotalRisePercent()));
+        s.put("minYinDropPercent", Analyzer.param("double", "首阴相对昨收最小跌幅%", c.getMinYinDropPercent()));
+        s.put("volumeSurgeRatio", Analyzer.param("double", "首阴量比下限(成交额/连涨期均额, 1.0=不过滤)", c.getVolumeSurgeRatio()));
+        s.put("takeProfitPct", Analyzer.param("double", "止盈: 入场价下方%", c.getTakeProfitPct()));
+        s.put("stopBufferPct", Analyzer.param("double", "止损: 冲高最高价上方缓冲%", c.getStopBufferPct()));
+        s.put("maxStopLossPct", Analyzer.param("double", "入场到止损距离上限%, 超出不输出(0=不限)", c.getMaxStopLossPct()));
+        s.put("minScore", Analyzer.param("int", "见顶强度分最低分(0-100, 0=不过滤)", c.getMinScore()));
+        return s;
     }
 
     @Override

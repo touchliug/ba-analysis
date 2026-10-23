@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -50,6 +51,16 @@ public class HighRiseAnalyzer extends AbstractKlineAnalyzer {
         double threshold = getDoubleParam(requestParams, "thresholdPercent", cfg.getThresholdPercent());
         double vr = getDoubleParam(requestParams, "volumeSurgeRatio", cfg.getVolumeSurgeRatio());
         return createParams("days", days, "thresholdPercent", threshold, "volumeSurgeRatio", vr);
+    }
+
+    @Override
+    public Map<String, Object> getParamSpec() {
+        var c = appProperties.getAnalysis().getHighRise();
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("days", Analyzer.param("int", "统计天数(截至最近收盘)", c.getDays()));
+        s.put("thresholdPercent", Analyzer.param("double", "涨幅阈值%", c.getThresholdPercent()));
+        s.put("volumeSurgeRatio", Analyzer.param("double", "量比下限(窗口均额/之前均额, 1.0=不过滤)", c.getVolumeSurgeRatio()));
+        return s;
     }
 
     @Override

@@ -141,6 +141,14 @@ class ReversalLongAnalyzerTest {
     }
 
     @Test
+    void skipsWhenTodayCandleNotSyncedYet() {
+        // 最新一根已收盘(1分钟前) = 当日K线还没进库, 入场日不存在 → 跳过, 避免信号整体前移一天
+        List<KlineData> series = buildSeries(true);
+        series.get(series.size() - 1).setCloseTime(System.currentTimeMillis() - 60_000);
+        assertTrue(analyzer.doAnalyze(Map.of("SHIFTUSDT", series), params()).isEmpty());
+    }
+
+    @Test
     void sortByScoreDescending() {
         List<AnalysisReport.CoinAnalysis> coins = new ArrayList<>();
         coins.addAll(analyzer.doAnalyze(Map.of("LOWUSDT", buildSeries(false)), params()));

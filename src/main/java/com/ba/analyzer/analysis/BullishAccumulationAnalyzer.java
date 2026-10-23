@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -66,6 +67,27 @@ public class BullishAccumulationAnalyzer extends AbstractKlineAnalyzer {
                 "requireHigherLow", getBoolParam(requestParams, "requireHigherLow", cfg.isRequireHigherLow()),
                 "volumeIncreaseMin", getDoubleParam(requestParams, "volumeIncreaseMin", cfg.getVolumeIncreaseMin()),
                 "rangeContractionMax", getDoubleParam(requestParams, "rangeContractionMax", cfg.getRangeContractionMax()));
+    }
+
+    @Override
+    public Map<String, Object> getParamSpec() {
+        var c = appProperties.getAnalysis().getBullishAccumulation();
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("days", Analyzer.param("int", "分析窗口(天)", c.getDays()));
+        s.put("minScore", Analyzer.param("int", "最低吸筹评分", c.getMinScore()));
+        s.put("priceLookbackDays", Analyzer.param("int", "价格位置回溯天数", c.getPriceLookbackDays()));
+        s.put("drawdownMin", Analyzer.param("double", "最低回撤%", c.getDrawdownMin()));
+        s.put("requireHigherLow", Analyzer.param("boolean", "必须低点抬高(true/false)", c.isRequireHigherLow()));
+        s.put("volumeIncreaseMin", Analyzer.param("double", "量能回升最小倍数", c.getVolumeIncreaseMin()));
+        s.put("rangeContractionMax", Analyzer.param("double", "振幅收敛最大比例", c.getRangeContractionMax()));
+        return s;
+    }
+
+    /** 窗口 + 回溯期 + 当前未收盘根 (原默认只取 days+30, 回溯期调大后全部币因数据不足被跳过)。 */
+    @Override
+    protected Map<String, List<KlineData>> fetchData(List<String> symbols, Map<String, Object> params) {
+        return dataFetchService.fetchDailyKlines(symbols,
+                (int) params.get("days") + (int) params.get("priceLookbackDays") + 1);
     }
 
     @Override
@@ -133,10 +155,9 @@ public class BullishAccumulationAnalyzer extends AbstractKlineAnalyzer {
             double secondHalfLow = secondHalf.stream().mapToDouble(KlineData::getLowPrice).min().orElse(0);
             double higherLowPct = firstHalfLow > 0 ? (secondHalfLow - firstHalfLow) / firstHalfLow * 100 : 0;
 
+            if (requireHigherLow && higherLowPct <= 0) continue;
             int hScore;
-            if (requireHigherLow && higherLowPct <= 0) {
-                hScore = 0; // Hard requirement not met
-            } else if (higherLowPct >= 5) hScore = 25;
+            if (higherLowPct >= 5) hScore = 25;
             else if (higherLowPct >= 2) hScore = 18;
             else if (higherLowPct > 0) hScore = 10;
             else hScore = 0;
@@ -207,10 +228,4 @@ public class BullishAccumulationAnalyzer extends AbstractKlineAnalyzer {
         return count > 0 ? total / count : 0;
     }
 
-    private boolean getBoolParam(Map<String, Object> params, String key, boolean defaultValue) {
-        if (params == null || !params.containsKey(key)) return defaultValue;
-        Object val = params.get(key);
-        if (val instanceof Boolean b) return b;
-        return Boolean.parseBoolean(val.toString());
-    }
 }

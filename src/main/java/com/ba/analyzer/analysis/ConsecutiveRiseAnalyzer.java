@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -19,6 +20,7 @@ import java.util.Map;
  *
  * 找出截至最近一根已收盘日K仍在连涨的强势币: 这些币一旦收阴, 就可能触发首阴日做空信号。
  * 满足首阴日连涨天数与累涨门槛的标记为 [首阴候选]。
+ * 已合并原"缓涨币": maxDailyRisePercent=3 + maxVolumeRatio<1 即温和缩量连涨。
  *
  * 只用已收盘K线: 当前未收盘的日K(closeTime 在未来)不参与判断。
  */
@@ -26,7 +28,6 @@ import java.util.Map;
 @Component
 public class ConsecutiveRiseAnalyzer extends AbstractKlineAnalyzer {
 
-    private static final long DAY_MS = 86_400_000L;
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("MM-dd");
 
     public ConsecutiveRiseAnalyzer(DataFetchService dataFetchService, AppProperties appProperties) {
@@ -54,8 +55,10 @@ public class ConsecutiveRiseAnalyzer extends AbstractKlineAnalyzer {
         return createParams(
                 "days", cfg.getDays(),
                 "minDailyRisePercent", cfg.getMinDailyRisePercent(),
+                "maxDailyRisePercent", cfg.getMaxDailyRisePercent(),
                 "minTotalRisePercent", cfg.getMinTotalRisePercent(),
-                "volumeSurgeRatio", cfg.getVolumeSurgeRatio());
+                "volumeSurgeRatio", cfg.getVolumeSurgeRatio(),
+                "maxVolumeRatio", cfg.getMaxVolumeRatio());
     }
 
     @Override
@@ -64,8 +67,23 @@ public class ConsecutiveRiseAnalyzer extends AbstractKlineAnalyzer {
         return createParams(
                 "days", getIntParam(requestParams, "days", cfg.getDays()),
                 "minDailyRisePercent", getDoubleParam(requestParams, "minDailyRisePercent", cfg.getMinDailyRisePercent()),
+                "maxDailyRisePercent", getDoubleParam(requestParams, "maxDailyRisePercent", cfg.getMaxDailyRisePercent()),
                 "minTotalRisePercent", getDoubleParam(requestParams, "minTotalRisePercent", cfg.getMinTotalRisePercent()),
-                "volumeSurgeRatio", getDoubleParam(requestParams, "volumeSurgeRatio", cfg.getVolumeSurgeRatio()));
+                "volumeSurgeRatio", getDoubleParam(requestParams, "volumeSurgeRatio", cfg.getVolumeSurgeRatio()),
+                "maxVolumeRatio", getDoubleParam(requestParams, "maxVolumeRatio", cfg.getMaxVolumeRatio()));
+    }
+
+    @Override
+    public Map<String, Object> getParamSpec() {
+        var c = appProperties.getAnalysis().getConsecutiveRise();
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("days", Analyzer.param("int", "最少连续阳线天数", c.getDays()));
+        s.put("minDailyRisePercent", Analyzer.param("double", "单根阳线最小实体涨幅%(过滤十字星/微动)", c.getMinDailyRisePercent()));
+        s.put("maxDailyRisePercent", Analyzer.param("double", "单根阳线最大实体涨幅%(0=不限; 设3即温和缓涨)", c.getMaxDailyRisePercent()));
+        s.put("minTotalRisePercent", Analyzer.param("double", "累计涨幅下限%(复利, 0=不过滤)", c.getMinTotalRisePercent()));
+        s.put("volumeSurgeRatio", Analyzer.param("double", "量比下限(连涨期均额/之前均额, 1.0=不过滤)", c.getVolumeSurgeRatio()));
+        s.put("maxVolumeRatio", Analyzer.param("double", "量比上限(0=不限; 设<1即缩量连涨)", c.getMaxVolumeRatio()));
+        return s;
     }
 
     @Override
@@ -88,8 +106,10 @@ public class ConsecutiveRiseAnalyzer extends AbstractKlineAnalyzer {
             Map<String, List<KlineData>> klineMap, Map<String, Object> params) {
         int days = (int) params.get("days");
         double minDailyRise = (double) params.get("minDailyRisePercent");
+        double maxDailyRise = (double) params.get("maxDailyRisePercent");
         double minTotalRise = (double) params.get("minTotalRisePercent");
         double volumeSurgeRatio = (double) params.get("volumeSurgeRatio");
+        double maxVolumeRatio = (double) params.get("maxVolumeRatio");
 
         var yinCfg = appProperties.getAnalysis().getFirstYinDay();
         long now = System.currentTimeMillis();
@@ -109,7 +129,7 @@ public class ConsecutiveRiseAnalyzer extends AbstractKlineAnalyzer {
             if (last.getCloseTime() > 0 && now - last.getCloseTime() > DAY_MS) continue;
 
             int runStart = lastIdx + 1;
-            while (runStart > 0 && isValidRise(klines.get(runStart - 1), minDailyRise)) runStart--;
+            while (runStart > 0 && isValidRise(klines.get(runStart - 1), minDailyRise, maxDailyRise)) runStart--;
             int runDays = lastIdx - runStart + 1;
             if (runDays < days) continue;
             // 连涨一直延伸到取数窗口起点: 实际天数可能更长
@@ -127,6 +147,7 @@ public class ConsecutiveRiseAnalyzer extends AbstractKlineAnalyzer {
             boolean hasHistory = histAvgVol > 0;
             double volRatio = hasHistory ? runAvgVol / histAvgVol : 0;
             if (volumeSurgeRatio > 1.0 && (!hasHistory || volRatio < volumeSurgeRatio)) continue;
+            if (maxVolumeRatio > 0 && (!hasHistory || volRatio > maxVolumeRatio)) continue;
 
             boolean yinCandidate = runDays >= yinCfg.getDays() && totalRise >= yinCfg.getMinTotalRisePercent();
             String lastDate = Instant.ofEpochMilli(last.getOpenTime())
@@ -147,8 +168,10 @@ public class ConsecutiveRiseAnalyzer extends AbstractKlineAnalyzer {
         return matched;
     }
 
-    private static boolean isValidRise(KlineData k, double minDailyRise) {
-        return k.getClosePrice() > k.getOpenPrice() && k.getChangePercent() >= minDailyRise;
+    private static boolean isValidRise(KlineData k, double minDailyRise, double maxDailyRise) {
+        double body = k.getChangePercent();
+        return k.getClosePrice() > k.getOpenPrice() && body >= minDailyRise
+                && (maxDailyRise <= 0 || body <= maxDailyRise);
     }
 
     private static double avgQuoteVolume(List<KlineData> klines, int from, int to) {

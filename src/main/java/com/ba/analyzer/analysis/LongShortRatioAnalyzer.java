@@ -56,6 +56,19 @@ public class LongShortRatioAnalyzer implements Analyzer {
         return true;
     }
 
+    /** 当前仅从配置读取, 不支持按请求覆盖; 此处只作页面说明。 */
+    @Override
+    public Map<String, Object> getParamSpec() {
+        var c = appProperties.getAnalysis().getLongShortRatio();
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("period", Analyzer.param("string", "LSR统计周期", c.getPeriod()));
+        s.put("lookback", Analyzer.param("int", "与多少根之前比较", c.getLookback()));
+        s.put("minScore", Analyzer.param("int", "最低评分(0-100)", c.getMinScore()));
+        s.put("takerBullishMin", Analyzer.param("double", "taker买卖比买盘占优阈值", c.getTakerBullishMin()));
+        s.put("_note", Analyzer.param("string", "该分析器参数当前仅从配置(application.yml)读取, 暂不支持按请求覆盖; 此处仅为文档说明", ""));
+        return s;
+    }
+
     @Override
     public AnalysisReport analyze(List<String> symbols) {
         var cfg = appProperties.getAnalysis().getLongShortRatio();

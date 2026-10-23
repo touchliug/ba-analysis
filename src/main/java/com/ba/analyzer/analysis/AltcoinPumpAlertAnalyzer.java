@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -73,6 +74,22 @@ public class AltcoinPumpAlertAnalyzer extends AbstractKlineAnalyzer {
                 "wickBodyRatio", getDoubleParam(requestParams, "wickBodyRatio", cfg.getWickBodyRatio()),
                 "silentBuyerRatio", getDoubleParam(requestParams, "silentBuyerRatio", cfg.getSilentBuyerRatio()),
                 "maxDrawdownPercent", getDoubleParam(requestParams, "maxDrawdownPercent", cfg.getMaxDrawdownPercent()));
+    }
+
+    @Override
+    public Map<String, Object> getParamSpec() {
+        var c = appProperties.getAnalysis().getAltcoinPumpAlert();
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("days", Analyzer.param("int", "分析周期(天, 截至最近收盘)", c.getDays()));
+        s.put("minScore", Analyzer.param("int", "最低预警评分", c.getMinScore()));
+        s.put("maxPriceDeclinePercent", Analyzer.param("double", "最大价格跌幅%(防接飞刀)", c.getMaxPriceDeclinePercent()));
+        s.put("oiConsecutiveDays", Analyzer.param("int", "OI连续上涨最少天数", c.getOiConsecutiveDays()));
+        s.put("volumeExpansionRatio", Analyzer.param("double", "量能扩张倍数阈值", c.getVolumeExpansionRatio()));
+        s.put("lowPricePercentile", Analyzer.param("double", "低价分位数阈值", c.getLowPricePercentile()));
+        s.put("wickBodyRatio", Analyzer.param("double", "下影线/实体最小倍数", c.getWickBodyRatio()));
+        s.put("silentBuyerRatio", Analyzer.param("double", "吃货比(阳量/阴量)阈值", c.getSilentBuyerRatio()));
+        s.put("maxDrawdownPercent", Analyzer.param("double", "窗口最大回撤上限%", c.getMaxDrawdownPercent()));
+        return s;
     }
 
     @Override

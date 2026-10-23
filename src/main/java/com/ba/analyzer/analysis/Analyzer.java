@@ -2,6 +2,7 @@ package com.ba.analyzer.analysis;
 
 import com.ba.analyzer.model.AnalysisReport;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -35,6 +36,22 @@ public interface Analyzer {
      */
     default boolean requiresIntradayData() {
         return false;
+    }
+
+    /**
+     * 页面可调参数说明: key → {type, description, default}。默认值须取自配置, 使页面显示即生效值。
+     * 返回 LinkedHashMap 以固定页面参数顺序。
+     */
+    default Map<String, Object> getParamSpec() {
+        return new LinkedHashMap<>();
+    }
+
+    static Map<String, Object> param(String type, String description, Object defaultValue) {
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("type", type);
+        p.put("description", description);
+        p.put("default", defaultValue);
+        return p;
     }
 
     default int getIntParam(Map<String, Object> params, String key, int defaultValue) {

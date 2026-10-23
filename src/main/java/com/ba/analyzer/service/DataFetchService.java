@@ -3,10 +3,12 @@ package com.ba.analyzer.service;
 import com.ba.analyzer.model.KlineData;
 import com.ba.analyzer.model.LongShortRatioData;
 import com.ba.analyzer.model.OpenInterestData;
+import com.ba.analyzer.model.PremiumIndexData;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -54,6 +56,15 @@ public class DataFetchService {
                     ratioType, stored.size(), symbols.size());
         }
         return stored;
+    }
+
+    /** 各合约最新资金费率 (premium_index 快照, 小数形式如 0.0001 = 0.01%)。 */
+    public Map<String, Double> getLastFundingRates() {
+        Map<String, Double> rates = new HashMap<>();
+        for (PremiumIndexData p : dataStore.getAllPremiumIndex()) {
+            if (p.getSymbol() != null) rates.put(p.getSymbol(), p.getLastFundingRateNum());
+        }
+        return rates;
     }
 
     private Map<String, List<KlineData>> trimKlinesByPeriod(Map<String, List<KlineData>> klineMap, int period) {

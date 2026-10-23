@@ -37,17 +37,15 @@ binance:
   analysis:
 
     # 首阴日候选池: 连涨中的强势币 (days 与 first-yin-day 对齐)
+    # 已合并原"缓涨币": max-daily-rise-percent=3 + max-volume-ratio<1 即温和缩量连涨
     consecutive-rise:
       enabled: false
       days: 3
       min-daily-rise-percent: 0.5
+      max-daily-rise-percent: 0
       min-total-rise-percent: 0
       volume-surge-ratio: 1.0
-
-    rise-then-drop:
-      enabled: false
-      days: 5
-      volume-surge-ratio: 1.0
+      max-volume-ratio: 0
 
     high-rise:
       enabled: false
@@ -55,29 +53,15 @@ binance:
       threshold-percent: 50
       volume-surge-ratio: 1.0
 
-    drop-then-rise:
-      enabled: false
-      days: 5
-      volume-surge-ratio: 1.0
-
-    slow-rise:
-      enabled: false
-      days: 7
-      max-daily-change-percent: 3
-      volume-surge-ratio: 1.0
-
-    price-drop-oi-rise:
-      enabled: false
-      days: 5
-      max-price-rise-percent: 10
-      min-oi-rise-percent: 20
-      volume-surge-ratio: 1.0
-
+    # 低位横盘 + 长下影插针 (支撑测试)
     low-price-consolidation:
       enabled: false
       days: 7
       max-price-change-percent: 10
       low-price-percentile: 30
+      low-lookback-days: 90
+      wick-body-ratio: 2.0
+      min-wick-range-ratio: 0.5
       volume-surge-ratio: 1.0
 
     bullish-accumulation:
@@ -102,19 +86,22 @@ binance:
       max-stop-loss-pct: 15.0
       min-score: 0
 
-    oi-consecutive-rise:
+    # 合并原 N日高低点 + N日最低
+    n-day-range:
+      enabled: false
+      days: 7
+      min-position-percent: 0
+      max-position-percent: 100
+      only-tagged: false
+
+    # 合并原 持仓量连增 + 价涨仓增: 仓增价不跟, 价稳/升偏多、价跌偏空
+    oi-divergence:
       enabled: false
       days: 5
-      max-price-rise-percent: 7
-      volume-surge-ratio: 1.0
-
-    n-min-max:
-      enabled: false
-      days: 7
-
-    n-day-low:
-      enabled: false
-      days: 7
+      min-oi-rise-percent: 15
+      min-oi-up-days: 4
+      min-price-change-percent: -10
+      max-price-change-percent: 10
 
     altcoin-pump-alert:
       enabled: false

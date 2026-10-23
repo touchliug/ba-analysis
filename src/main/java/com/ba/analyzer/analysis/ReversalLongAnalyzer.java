@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -44,6 +45,28 @@ public class ReversalLongAnalyzer extends AbstractKlineAnalyzer {
     @Override
     public boolean isEnabled() {
         return appProperties.getAnalysis().getReversalLong().isEnabled();
+    }
+
+    /** 最新一根为入场日(当日未收盘根), 只取其开盘价; 自行区分收盘/未收盘。 */
+    @Override
+    protected boolean closedCandlesOnly() {
+        return false;
+    }
+
+    @Override
+    public Map<String, Object> getParamSpec() {
+        var c = appProperties.getAnalysis().getReversalLong();
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("declineMinDays", Analyzer.param("int", "最少连续下跌天数", c.getDeclineMinDays()));
+        s.put("declineMinPct", Analyzer.param("double", "累计跌幅下限%", c.getDeclineMinPct()));
+        s.put("declineMaxPct", Analyzer.param("double", "累计跌幅上限%", c.getDeclineMaxPct()));
+        s.put("reversalMinPct", Analyzer.param("double", "反转日涨幅下限%", c.getReversalMinPct()));
+        s.put("reversalMaxPct", Analyzer.param("double", "反转日涨幅上限%", c.getReversalMaxPct()));
+        s.put("takeProfitPct", Analyzer.param("double", "止盈点位%", c.getTakeProfitPct()));
+        s.put("stopLossPct", Analyzer.param("double", "止损点位%", c.getStopLossPct()));
+        s.put("volumeConfirmRatio", Analyzer.param("double", "反转日量比阈值(1.0=不过滤)", c.getVolumeConfirmRatio()));
+        s.put("qualityMinScore", Analyzer.param("int", "反转质量分最低分(0-100, 0=不过滤)", c.getQualityMinScore()));
+        return s;
     }
 
     @Override
@@ -135,6 +158,8 @@ public class ReversalLongAnalyzer extends AbstractKlineAnalyzer {
             // (当日K线未收盘时 closeTime 在未来, now-closeTime 为负, 正常通过。)
             long newestCloseTime = complete.get(entryIdx).getCloseTime();
             if (newestCloseTime > 0 && now - newestCloseTime > oneDayMs) continue;
+            // 最新根已收盘 = 当日K线尚未同步进库(如 08:00 后几分钟), 入场日不存在, 信号会整体前移一天 → 跳过
+            if (newestCloseTime > 0 && newestCloseTime <= now) continue;
 
                 int reversalIdx = entryIdx - 1;
                 int declineEndIdx = entryIdx - 2;

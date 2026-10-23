@@ -49,6 +49,7 @@ public class KlineData {
     }
 
     private static double parseDouble(String s) {
+        if (s == null) return 0;
         try {
             return Double.parseDouble(s);
         } catch (NumberFormatException e) {

@@ -398,8 +398,10 @@ function renderResultTable(report) {
     const isReversal = report.analysisType === '反转做多';
     const isFirstYin = report.analysisType === '首阴日';
     const hasTradePlan = isReversal || isFirstYin;
-    const isNDayLow = report.analysisType === 'N日最低';
-    const sorted = [...report.coins].sort((a, b) => {
+    const isNDayLow = report.analysisType === 'N日区间';
+    const isOiDivergence = report.analysisType === '持仓背离';
+    // N日区间: 服务端已按"带标记优先 + 贴近低点优先"排好, 不再按涨跌幅重排
+    const sorted = isNDayLow ? [...report.coins] : [...report.coins].sort((a, b) => {
         if (hasScore) return (b.score || 0) - (a.score || 0);
         return (b.changePercent || 0) - (a.changePercent || 0);
     });
@@ -411,7 +413,10 @@ function renderResultTable(report) {
     for (const coin of sorted) {
         const pct = coin.changePercent != null ? coin.changePercent : null;
         let pctHtml = '<span class="neutral">--</span>';
-        if (pct != null) {
+        if (pct != null && isNDayLow) {
+            // 区间位置(0=最低,100=最高)不是涨跌幅, 不加正负号与红绿色
+            pctHtml = `<span class="neutral">${pct.toFixed(1)}%</span>`;
+        } else if (pct != null) {
             const cls = pct > 0 ? 'positive' : pct < 0 ? 'negative' : 'neutral';
             const sign = pct > 0 ? '+' : '';
             pctHtml = `<span class="${cls}">${sign}${pct.toFixed(2)}%</span>`;
@@ -472,7 +477,9 @@ function renderResultTable(report) {
     const priceHeader = hasTradePlan ? '<th>入场价</th>' : '<th>当前价格</th>';
     const chgHeader = isReversal ? '<th>反转涨幅</th>'
         : isFirstYin ? '<th>首阴跌幅</th>'
-        : (isNDayLow ? '<th>距最低</th>' : '<th>涨跌幅</th>');
+        : isNDayLow ? '<th>区间位置</th>'
+        : isOiDivergence ? '<th>持仓变化</th>'
+        : '<th>涨跌幅</th>';
     const nDayHeaders = isNDayLow ? '<th>N日最低</th><th>最低日期</th>' : '';
 
     let specialSummary = '';

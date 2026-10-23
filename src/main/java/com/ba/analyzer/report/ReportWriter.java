@@ -18,14 +18,14 @@ public class ReportWriter {
 
     private static final Map<String, String> NAME_MAPPING = Map.of(
             "连续上涨", "consecutive_rise",
-            "连涨今跌", "rise_then_drop",
             "大幅上涨", "high_rise",
-            "连跌今涨", "drop_then_rise",
-            "缓涨币", "slow_rise",
-            "价涨仓增", "price_drop_oi_rise",
             "低位插针", "low_price_consolidation",
             "底部吸筹", "bullish_accumulation",
             "首阴日", "first_yin_day",
+            "N日区间", "n_day_range",
+            "持仓背离", "oi_divergence",
+            "山寨币暴涨预警", "altcoin_pump_alert",
+            "反转做多", "reversal_long",
             "多空比异动", "long_short_ratio"
     );
 

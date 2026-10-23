@@ -163,6 +163,34 @@ class ConsecutiveRiseAnalyzerTest {
     }
 
     @Test
+    void maxDailyRiseActsAsSlowRiseFilter() {
+        // 3连阳单日 +5%/+4.8%/+9.1%: 设单日上限3%即原"缓涨币", 均超限不算有效阳线
+        when(dataFetchService.fetchDailyKlines(anyList(), anyInt()))
+                .thenReturn(Map.of("BTCUSDT", closed(RUN3)));
+        assertEquals(0, analyzer.analyze(List.of("BTCUSDT"), Map.of("maxDailyRisePercent", 3.0)).getMatchedCount());
+
+        double[][] gentle = {{102, 100}, {100, 102}, {102, 104}, {104, 106}};
+        when(dataFetchService.fetchDailyKlines(anyList(), anyInt()))
+                .thenReturn(Map.of("BTCUSDT", closed(gentle)));
+        assertEquals(1, analyzer.analyze(List.of("BTCUSDT"), Map.of("maxDailyRisePercent", 3.0)).getMatchedCount());
+    }
+
+    @Test
+    void maxVolumeRatioRequiresShrinkingVolume() {
+        // 原"缓涨币"的缩量过滤方向写反且参数需>1.0才生效, 缩量条件根本设不出来
+        // (KlineData 首次读取后缓存解析值, 每种量能用一份新序列)
+        List<KlineData> shrinking = closed(RUN3);
+        shrinking.get(0).setQuoteAssetVolume("20000");
+        when(dataFetchService.fetchDailyKlines(anyList(), anyInt())).thenReturn(Map.of("BTCUSDT", shrinking));
+        assertEquals(1, analyzer.analyze(List.of("BTCUSDT"), Map.of("maxVolumeRatio", 0.8)).getMatchedCount());
+
+        List<KlineData> expanding = closed(RUN3);
+        expanding.get(0).setQuoteAssetVolume("5000");
+        when(dataFetchService.fetchDailyKlines(anyList(), anyInt())).thenReturn(Map.of("BTCUSDT", expanding));
+        assertEquals(0, analyzer.analyze(List.of("BTCUSDT"), Map.of("maxVolumeRatio", 0.8)).getMatchedCount());
+    }
+
+    @Test
     void volumeFilterRejectsWhenNoHistory() {
         when(dataFetchService.fetchDailyKlines(anyList(), anyInt()))
                 .thenReturn(Map.of("BTCUSDT", closed(new double[][]{{100, 105}, {105, 110}, {110, 120}})));

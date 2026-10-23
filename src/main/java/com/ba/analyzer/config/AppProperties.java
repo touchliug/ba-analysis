@@ -117,12 +117,26 @@ public class AppProperties {
         private double rangeContractionMax = 0.8;
     }
 
+    /** 首阴日 = 见顶做空信号: 连涨N天后首根阴线, 次日开盘做空, 止损放在冲高最高点上方。 */
     @Data
     public static class FirstYinDayConfig {
         private boolean enabled = false;
+        // 首阴前最少连续阳线天数
         private int days = 3;
+        // 连涨区间累计涨幅下限(%, 复利)
         private double minTotalRisePercent = 15;
+        // 首阴相对前日收盘的最小跌幅(%): 过滤十字星式小阴线
+        private double minYinDropPercent = 2.0;
+        // 首阴成交额/连涨期均额 >= 此值才输出 (1.0=不过滤)
         private double volumeSurgeRatio = 1.0;
+        // 止盈: 入场价下方百分比
+        private double takeProfitPct = 10.0;
+        // 止损: 冲高最高价上方缓冲百分比
+        private double stopBufferPct = 1.0;
+        // 入场到止损的距离上限(%), 超出视为风险过大不输出 (0=不限)
+        private double maxStopLossPct = 15.0;
+        // 见顶强度分最低分(0-100), 0=不过滤仅排序
+        private int minScore = 0;
     }
 
     @Data

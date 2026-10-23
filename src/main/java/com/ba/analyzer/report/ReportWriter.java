@@ -25,6 +25,7 @@ public class ReportWriter {
             "价涨仓增", "price_drop_oi_rise",
             "低位插针", "low_price_consolidation",
             "底部吸筹", "bullish_accumulation",
+            "首阴日", "first_yin_day",
             "多空比异动", "long_short_ratio"
     );
 

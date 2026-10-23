@@ -87,11 +87,17 @@ binance:
       volume-increase-min: 1.2
       range-contraction-max: 0.8
 
+    # 见顶做空: 连涨N天后首根阴线(已收盘), 次日开盘做空
     first-yin-day:
       enabled: false
       days: 3
       min-total-rise-percent: 15
+      min-yin-drop-percent: 2.0
       volume-surge-ratio: 1.0
+      take-profit-pct: 10.0
+      stop-buffer-pct: 1.0
+      max-stop-loss-pct: 15.0
+      min-score: 0
 
     oi-consecutive-rise:
       enabled: false

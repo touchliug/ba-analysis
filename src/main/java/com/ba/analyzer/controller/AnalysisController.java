@@ -1,6 +1,7 @@
 package com.ba.analyzer.controller;
 
 import com.ba.analyzer.analysis.Analyzer;
+import com.ba.analyzer.config.AppProperties;
 import com.ba.analyzer.model.AnalysisReport;
 import com.ba.analyzer.scheduler.AnalysisScheduler;
 import com.ba.analyzer.service.SymbolService;
@@ -38,6 +39,7 @@ public class AnalysisController {
     private final List<Analyzer> analyzers;
     private final AnalysisScheduler analysisScheduler;
     private final SymbolService symbolService;
+    private final AppProperties appProperties;
     private final Map<String, AtomicLong> lastSyncTime = new ConcurrentHashMap<>();
 
     @GetMapping("/list")
@@ -222,6 +224,18 @@ public class AnalysisController {
                 params.put("days", Map.of("type", "int", "description", "统计天数", "default", 7));
                 params.put("maxPriceChangePercent", Map.of("type", "double", "description", "最大价格变化百分比", "default", 10));
                 params.put("lowPricePercentile", Map.of("type", "double", "description", "低价分位数(0-100)", "default", 30));
+                yield params;
+            }
+            case "首阴日" -> {
+                var c = appProperties.getAnalysis().getFirstYinDay();
+                params.put("days", Map.of("type", "int", "description", "首阴前最少连续阳线天数", "default", c.getDays()));
+                params.put("minTotalRisePercent", Map.of("type", "double", "description", "连涨累计涨幅下限%(复利)", "default", c.getMinTotalRisePercent()));
+                params.put("minYinDropPercent", Map.of("type", "double", "description", "首阴相对昨收最小跌幅%", "default", c.getMinYinDropPercent()));
+                params.put("volumeSurgeRatio", Map.of("type", "double", "description", "首阴量比下限(成交额/连涨期均额, 1.0=不过滤)", "default", c.getVolumeSurgeRatio()));
+                params.put("takeProfitPct", Map.of("type", "double", "description", "止盈: 入场价下方%", "default", c.getTakeProfitPct()));
+                params.put("stopBufferPct", Map.of("type", "double", "description", "止损: 冲高最高价上方缓冲%", "default", c.getStopBufferPct()));
+                params.put("maxStopLossPct", Map.of("type", "double", "description", "入场到止损距离上限%, 超出不输出(0=不限)", "default", c.getMaxStopLossPct()));
+                params.put("minScore", Map.of("type", "int", "description", "见顶强度分最低分(0-100, 0=不过滤)", "default", c.getMinScore()));
                 yield params;
             }
             case "底部吸筹" -> {

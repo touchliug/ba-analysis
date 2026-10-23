@@ -396,6 +396,8 @@ function renderResultTable(report) {
 
     const hasScore = report.coins.some(c => c.score != null && c.score !== undefined);
     const isReversal = report.analysisType === '反转做多';
+    const isFirstYin = report.analysisType === '首阴日';
+    const hasTradePlan = isReversal || isFirstYin;
     const isNDayLow = report.analysisType === 'N日最低';
     const sorted = [...report.coins].sort((a, b) => {
         if (hasScore) return (b.score || 0) - (a.score || 0);
@@ -443,10 +445,11 @@ function renderResultTable(report) {
             lowDateCell = `<td>${lowDate}</td>`;
         }
 
-        // For reversal analyzer: highlight key prices in detail
+        // 带交易计划的分析器(反转做多/首阴日做空): 高亮入场/止盈/止损/盈亏比
         let detailHtml = escHtml(coin.detail || '');
-        if (isReversal && coin.detail) {
-            detailHtml = coin.detail
+        if (hasTradePlan && coin.detail) {
+            detailHtml = escHtml(coin.detail)
+                .replace(/做空/g, '<span class="hl-sl">做空</span>')
                 .replace(/入场([\d.]+)/g, '<span class="hl-entry">入场$1</span>')
                 .replace(/止盈([\d.]+)\(([^)]+)\)/g, '<span class="hl-tp">止盈$1($2)</span>')
                 .replace(/止损([\d.]+)\(([^)]+)\)/g, '<span class="hl-sl">止损$1($2)</span>')
@@ -466,8 +469,10 @@ function renderResultTable(report) {
     }
 
     const scoreHeader = hasScore ? '<th>评分</th>' : '';
-    const priceHeader = isReversal ? '<th>入场价</th>' : '<th>当前价格</th>';
-    const chgHeader = isReversal ? '<th>反转涨幅</th>' : (isNDayLow ? '<th>距最低</th>' : '<th>涨跌幅</th>');
+    const priceHeader = hasTradePlan ? '<th>入场价</th>' : '<th>当前价格</th>';
+    const chgHeader = isReversal ? '<th>反转涨幅</th>'
+        : isFirstYin ? '<th>首阴跌幅</th>'
+        : (isNDayLow ? '<th>距最低</th>' : '<th>涨跌幅</th>');
     const nDayHeaders = isNDayLow ? '<th>N日最低</th><th>最低日期</th>' : '';
 
     let specialSummary = '';

@@ -193,7 +193,11 @@ public class AnalysisController {
         Map<String, Object> params = new HashMap<>();
         return switch (name) {
             case "连续上涨" -> {
-                params.put("days", Map.of("type", "int", "description", "连续上涨天数", "default", 3));
+                var c = appProperties.getAnalysis().getConsecutiveRise();
+                params.put("days", Map.of("type", "int", "description", "最少连续阳线天数", "default", c.getDays()));
+                params.put("minDailyRisePercent", Map.of("type", "double", "description", "单根阳线最小实体涨幅%(过滤十字星/微动)", "default", c.getMinDailyRisePercent()));
+                params.put("minTotalRisePercent", Map.of("type", "double", "description", "累计涨幅下限%(复利, 0=不过滤)", "default", c.getMinTotalRisePercent()));
+                params.put("volumeSurgeRatio", Map.of("type", "double", "description", "量比下限(连涨期均额/之前均额, 1.0=不过滤)", "default", c.getVolumeSurgeRatio()));
                 yield params;
             }
             case "连涨今跌" -> {

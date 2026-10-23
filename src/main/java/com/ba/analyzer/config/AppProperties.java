@@ -43,10 +43,17 @@ public class AppProperties {
         private LongShortRatioConfig longShortRatio = new LongShortRatioConfig();
     }
 
+    /** 连续上涨 = 首阴日候选池: 连涨中的强势币, 收阴即可能触发首阴日做空。 */
     @Data
     public static class ConsecutiveRiseConfig {
         private boolean enabled = true;
+        // 最少连续阳线天数 (默认与首阴日对齐)
         private int days = 3;
+        // 单根阳线最小实体涨幅(%): 低于此值不算有效阳线, 过滤十字星/稳定币微动
+        private double minDailyRisePercent = 0.5;
+        // 连涨区间累计涨幅下限(%, 复利), 0=不过滤
+        private double minTotalRisePercent = 0;
+        // 连涨期均成交额/之前均额 >= 此值才输出 (1.0=不过滤)
         private double volumeSurgeRatio = 1.0;
     }
 

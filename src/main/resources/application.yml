@@ -36,9 +36,12 @@ binance:
 
   analysis:
 
+    # 首阴日候选池: 连涨中的强势币 (days 与 first-yin-day 对齐)
     consecutive-rise:
       enabled: false
-      days: 5
+      days: 3
+      min-daily-rise-percent: 0.5
+      min-total-rise-percent: 0
       volume-surge-ratio: 1.0
 
     rise-then-drop:

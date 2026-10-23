@@ -7,13 +7,27 @@ import com.ba.analyzer.service.DataFetchService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 连续上涨 —— 首阴日候选池。
+ *
+ * 找出截至最近一根已收盘日K仍在连涨的强势币: 这些币一旦收阴, 就可能触发首阴日做空信号。
+ * 满足首阴日连涨天数与累涨门槛的标记为 [首阴候选]。
+ *
+ * 只用已收盘K线: 当前未收盘的日K(closeTime 在未来)不参与判断。
+ */
 @Slf4j
 @Component
 public class ConsecutiveRiseAnalyzer extends AbstractKlineAnalyzer {
+
+    private static final long DAY_MS = 86_400_000L;
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("MM-dd");
 
     public ConsecutiveRiseAnalyzer(DataFetchService dataFetchService, AppProperties appProperties) {
         super(dataFetchService, appProperties);
@@ -26,8 +40,7 @@ public class ConsecutiveRiseAnalyzer extends AbstractKlineAnalyzer {
 
     @Override
     public String getDescription() {
-        int days = appProperties.getAnalysis().getConsecutiveRise().getDays();
-        return String.format("连续%d天上涨的币", days);
+        return buildDescription(getDefaultParams());
     }
 
     @Override
@@ -38,53 +51,110 @@ public class ConsecutiveRiseAnalyzer extends AbstractKlineAnalyzer {
     @Override
     protected Map<String, Object> getDefaultParams() {
         var cfg = appProperties.getAnalysis().getConsecutiveRise();
-        return createParams("days", cfg.getDays(), "volumeSurgeRatio", cfg.getVolumeSurgeRatio());
+        return createParams(
+                "days", cfg.getDays(),
+                "minDailyRisePercent", cfg.getMinDailyRisePercent(),
+                "minTotalRisePercent", cfg.getMinTotalRisePercent(),
+                "volumeSurgeRatio", cfg.getVolumeSurgeRatio());
     }
 
     @Override
     protected Map<String, Object> resolveParams(Map<String, Object> requestParams) {
         var cfg = appProperties.getAnalysis().getConsecutiveRise();
-        int days = getIntParam(requestParams, "days", cfg.getDays());
-        double vr = getDoubleParam(requestParams, "volumeSurgeRatio", cfg.getVolumeSurgeRatio());
-        return createParams("days", days, "volumeSurgeRatio", vr);
+        return createParams(
+                "days", getIntParam(requestParams, "days", cfg.getDays()),
+                "minDailyRisePercent", getDoubleParam(requestParams, "minDailyRisePercent", cfg.getMinDailyRisePercent()),
+                "minTotalRisePercent", getDoubleParam(requestParams, "minTotalRisePercent", cfg.getMinTotalRisePercent()),
+                "volumeSurgeRatio", getDoubleParam(requestParams, "volumeSurgeRatio", cfg.getVolumeSurgeRatio()));
+    }
+
+    @Override
+    protected Map<String, List<KlineData>> fetchData(List<String> symbols, Map<String, Object> params) {
+        int days = (int) params.get("days");
+        // 连涨区间 + 基准根 + 当前未收盘根; 缓冲用于识别更长连涨及计算之前的均量。
+        return dataFetchService.fetchDailyKlines(symbols, days + 2 + getHistoryBufferDays());
     }
 
     @Override
     protected String buildDescription(Map<String, Object> params) {
-        return String.format("连续%d天上涨的币", (int) params.get("days"));
+        double minTotal = (double) params.get("minTotalRisePercent");
+        return String.format("首阴日候选池: 截至最近收盘连涨≥%d天(每天≥%.1f%%%s)的强势币, 收阴即可能触发首阴做空",
+                (int) params.get("days"), (double) params.get("minDailyRisePercent"),
+                minTotal > 0 ? String.format(", 累涨≥%.0f%%", minTotal) : "");
     }
 
     @Override
     protected List<AnalysisReport.CoinAnalysis> doAnalyze(
             Map<String, List<KlineData>> klineMap, Map<String, Object> params) {
         int days = (int) params.get("days");
+        double minDailyRise = (double) params.get("minDailyRisePercent");
+        double minTotalRise = (double) params.get("minTotalRisePercent");
         double volumeSurgeRatio = (double) params.get("volumeSurgeRatio");
+
+        var yinCfg = appProperties.getAnalysis().getFirstYinDay();
+        long now = System.currentTimeMillis();
         List<AnalysisReport.CoinAnalysis> matched = new ArrayList<>();
 
         for (Map.Entry<String, List<KlineData>> entry : klineMap.entrySet()) {
             String symbol = entry.getKey();
             List<KlineData> klines = entry.getValue();
-            if (klines.size() < days) continue;
+            if (klines.isEmpty()) continue;
 
-            List<KlineData> recentKlines = klines.subList(klines.size() - days, klines.size());
-            boolean allRise = recentKlines.stream().allMatch(k -> k.getChangePercent() > 0);
-            if (!allRise) continue;
+            int lastIdx = klines.size() - 1;
+            if (klines.get(lastIdx).getCloseTime() > now) lastIdx--;
+            if (lastIdx < 0) continue;
 
-            List<KlineData> historyKlines = klines.subList(0, klines.size() - days);
-            double vr = calculateVolumeRatio(recentKlines, historyKlines);
-            if (volumeSurgeRatio > 1.0 && vr < volumeSurgeRatio) continue;
+            KlineData last = klines.get(lastIdx);
+            // 日线同步滞后时最新已收盘根不是"昨天" → 跳过, 避免把旧行情当成仍在连涨
+            if (last.getCloseTime() > 0 && now - last.getCloseTime() > DAY_MS) continue;
 
-            double totalChange = recentKlines.stream().mapToDouble(KlineData::getChangePercent).sum();
-            KlineData latest = recentKlines.get(recentKlines.size() - 1);
+            int runStart = lastIdx + 1;
+            while (runStart > 0 && isValidRise(klines.get(runStart - 1), minDailyRise)) runStart--;
+            int runDays = lastIdx - runStart + 1;
+            if (runDays < days) continue;
+            // 连涨一直延伸到取数窗口起点: 实际天数可能更长
+            boolean runAtWindowStart = runStart == 0;
+
+            double refPrice = runStart > 0
+                    ? klines.get(runStart - 1).getClosePrice()
+                    : klines.get(runStart).getOpenPrice();
+            if (refPrice <= 0) continue;
+            double totalRise = (last.getClosePrice() / refPrice - 1) * 100;
+            if (minTotalRise > 0 && totalRise < minTotalRise) continue;
+
+            double runAvgVol = avgQuoteVolume(klines, runStart, lastIdx + 1);
+            double histAvgVol = avgQuoteVolume(klines, 0, runStart);
+            boolean hasHistory = histAvgVol > 0;
+            double volRatio = hasHistory ? runAvgVol / histAvgVol : 0;
+            if (volumeSurgeRatio > 1.0 && (!hasHistory || volRatio < volumeSurgeRatio)) continue;
+
+            boolean yinCandidate = runDays >= yinCfg.getDays() && totalRise >= yinCfg.getMinTotalRisePercent();
+            String lastDate = Instant.ofEpochMilli(last.getOpenTime())
+                    .atOffset(ZoneOffset.ofHours(8)).format(DATE_FMT);
 
             matched.add(AnalysisReport.CoinAnalysis.builder()
                     .symbol(symbol)
-                    .currentPrice(latest.getClosePrice())
-                    .changePercent(totalChange)
-                    .detail(String.format("连续%d天上涨，累计涨幅%.2f%%，成交量为历史%.1f倍",
-                            days, totalChange, vr))
+                    .currentPrice(last.getClosePrice())
+                    .changePercent(totalRise)
+                    .detail(String.format("%s连涨%s%d天 累涨%.2f%% 日均%.2f%% %s | 截至%s收盘",
+                            yinCandidate ? "[首阴候选] " : "",
+                            runAtWindowStart ? "≥" : "", runDays, totalRise,
+                            totalRise / runDays,
+                            hasHistory ? String.format("量比%.1fx", volRatio) : "量比-(无历史)",
+                            lastDate))
                     .build());
         }
         return matched;
+    }
+
+    private static boolean isValidRise(KlineData k, double minDailyRise) {
+        return k.getClosePrice() > k.getOpenPrice() && k.getChangePercent() >= minDailyRise;
+    }
+
+    private static double avgQuoteVolume(List<KlineData> klines, int from, int to) {
+        if (to <= from) return 0;
+        double sum = 0;
+        for (int i = from; i < to; i++) sum += klines.get(i).getQuoteVolume();
+        return sum / (to - from);
     }
 }

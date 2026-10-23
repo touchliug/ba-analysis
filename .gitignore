@@ -12,3 +12,5 @@ __pycache__/
 .env
 analysis.log
 keystore.p12
+# 部署机上的真实配置 (由 ./start.sh config 从 config/application.yml.example 生成), 不进版本库
+/config/application.yml

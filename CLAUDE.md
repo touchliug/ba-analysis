@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this service is
 
-`ba-analysis` is a Spring Boot 3.2 / Java 21 service that **only reads** Binance USDT-M futures data (klines, open interest, funding rate) from MySQL, runs a set of analyzers over it, and exposes the results via REST + a static web UI on port 8080.
+`ba-analysis` is a Spring Boot 3.2 / Java 21 service that **only reads** Binance USDT-M futures data (klines, open interest, funding rate) from MySQL, runs a set of analyzers over it, and exposes the results via REST + a static web UI over HTTPS on port 443.
 
 The hard architectural rule: **this service never calls the Binance API.** All data fetching, writing, and DDL is the responsibility of a separate, independent service (`ba-sync`). The two services share nothing but the MySQL database. If a table is empty or missing, that means `ba-sync` hasn't run yet — the expected behavior here is to log a warn and return empty, never to fall back to fetching from Binance.
 
@@ -13,16 +13,17 @@ The hard architectural rule: **this service never calls the Binance API.** All d
 ```bash
 mvn package -DskipTests    # build the fat jar into target/ba-analysis-1.0.0.jar
 mvn test                   # run all tests
-mvn test -Dtest=ShortTermRiseAnalyzerTest          # single test class
-mvn test -Dtest=ShortTermRiseAnalyzerTest#methodName   # single test method
+mvn test -Dtest=FirstYinDayAnalyzerTest          # single test class
+mvn test -Dtest=FirstYinDayAnalyzerTest#methodName   # single test method
 
-./start.sh         # start in background (java -jar), port 8080, logs to analysis.log
+./start.sh config  # first deploy: generate config/application.yml from config/application.yml.example
+./start.sh         # start in background (java -jar), HTTPS 443, logs to analysis.log
 ./start.sh log     # tail the log
 ./start.sh status  # check running PID
 ./start.sh stop | restart
 ```
 
-Running requires MySQL connectivity only (no outbound internet). The DB connection is hardcoded in `application.yml` under `spring.datasource`.
+Running requires MySQL connectivity only (no outbound internet). On deploy, `config/application.yml` (gitignored, full copy of every key) overrides the jar's `application.yml`; `start.sh` passes `--spring.config.additional-location=file:./config/` and refuses to start without it. Secrets stay as `${DB_PASSWORD}` / `${SSL_KEYSTORE_PASSWORD}` placeholders filled from `.env`, which `start.sh` sources. When adding a config key, add it to both `src/main/resources/application.yml` and `config/application.yml.example`.
 
 ## Architecture
 

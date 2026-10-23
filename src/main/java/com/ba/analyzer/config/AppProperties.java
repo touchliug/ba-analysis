@@ -206,11 +206,8 @@ public class AppProperties {
 
     @Data
     public static class ScheduleConfig {
-        private String symbolUpdate = "0 0 6 * * ?";
         private String dailyAnalysis = "0 5 8 * * ?";
-        private String shortTermAnalysis = "0 */10 * * * ?";
-        private String dailyKlineSync = "0 37 * * * ?";
-        private String dailyOiSync = "0 20 8 * * ?";
+        private String shortTermAnalysis = "0 */5 * * * ?";
     }
 
     @Data

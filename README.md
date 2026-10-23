@@ -42,6 +42,8 @@
 ## 运行
 ```bash
 mvn package -DskipTests
+./start.sh config     # 首次: 从 config/application.yml.example 生成 config/application.yml (全量配置, 不入库)
+cp .env.example .env  # 首次: 填 DB_PASSWORD
 ./start.sh cert       # 首次: 生成自签名证书 keystore.p12 (不入库)
 ./start.sh setcap     # 非 root 部署: 授权 java 绑定 443 (一次性; 或用 sudo 启动)
 ./start.sh            # 后台启动; HTTPS, 端口 443
@@ -50,8 +52,15 @@ mvn package -DskipTests
 ```
 无需出网,只需能连到 MySQL。访问 `https://<host>/`(自签名证书,浏览器首次需手动信任)。
 
+### 部署配置
+- `config/application.yml` 是部署时的配置来源:列出全部配置项,启动时逐项覆盖 jar 内打包的 `application.yml`。
+  改完 `./start.sh restart` 即可,无需重新打包。缺失时 `start.sh` 拒绝启动,不会静默沿用 jar 内默认值。
+- 模板 `config/application.yml.example` 入库;真实的 `config/application.yml` 被 `.gitignore` 忽略,只留在部署机。
+- 密码默认写成 `${DB_PASSWORD}` 由 `.env` 提供(配置引用了它而 `.env` 没填时 `start.sh` 会提示并退出),也可直接写明文。
+- 升级代码若新增配置项,`config/application.yml` 没写的新项沿用 jar 内默认值,需对照模板补齐。
+
 ### HTTPS / 端口 443 说明
-- SSL 配置在 `application.yml` 的 `server.ssl.*`,读 `./keystore.p12`(自签名,`.gitignore` 已忽略,不入库)。
+- SSL 配置在 `config/application.yml` 的 `server.ssl.*`,读 `./keystore.p12`(自签名,`.gitignore` 已忽略,不入库)。
 - 证书生成命令封装在 `./start.sh cert`(`keytool` 生成 PKCS12,SAN 含公网 IP + localhost,有效期 10 年)。
 - 443 是特权端口:非 root 启动需先 `./start.sh setcap`(底层 `setcap cap_net_bind_service`),或直接 `sudo ./start.sh`。生产更推荐用 Nginx 反代在 443 终止 SSL。
 - 自签名证书浏览器会提示"不安全";要消除需换正式 CA 证书(如 Let's Encrypt),把 `key-store` 指向对应密钥库即可。

@@ -24,8 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * - POST /api/analysis/sync/{name}   同步执行指定分析器，支持query参数和JSON body两种传参方式
  * - GET  /api/analysis/latest        获取所有分析器的最新分析结果
  * - GET  /api/analysis/latest/{name} 获取指定分析器的最新分析结果
- * - POST /api/analysis/symbols/refresh 刷新合约列表
- * - GET  /api/analysis/symbols       获取合约列表
+ * - GET  /api/analysis/symbols       获取合约列表 (每次从MySQL实时读取)
  * - GET  /api/analysis/params/{name} 获取指定分析器支持的参数说明
  */
 @Slf4j
@@ -165,16 +164,6 @@ public class AnalysisController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(report);
-    }
-
-    @PostMapping("/symbols/refresh")
-    public ResponseEntity<Map<String, Object>> refreshSymbols() {
-        // 分析服务不拉币安, 仅从MySQL重读币种全集 (合约列表由同步服务 ba-sync 维护)。
-        int count = symbolService.getSymbolNames().size();
-        Map<String, Object> result = new HashMap<>();
-        result.put("count", count);
-        result.put("message", "Symbols reloaded from DB");
-        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/symbols")

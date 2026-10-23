@@ -47,14 +47,8 @@ public class ReversalLongAnalyzer extends AbstractKlineAnalyzer {
     }
 
     @Override
-    public int requiredDays() {
-        // 连跌天数 + 反转日 + 入场日 + 余量
-        return appProperties.getAnalysis().getReversalLong().getDeclineMinDays() + 5;
-    }
-
-    @Override
     protected Map<String, List<KlineData>> fetchData(List<String> symbols, Map<String, Object> params) {
-        // 反转做多无"days"参数, 父类默认会回退到7天; 这里按连跌天数取数, 与 requiredDays() 口径一致。
+        // 反转做多无"days"参数, 父类默认会回退到7天; 这里按连跌天数取数。
         int declineMinDays = (int) params.get("declineMinDays");
         int needed = declineMinDays + 5 + getHistoryBufferDays();
         return dataFetchService.fetchDailyKlines(symbols, needed);

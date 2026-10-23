@@ -65,12 +65,6 @@ const api = {
         const res = await fetch(`${API_BASE}/symbols`);
         if (!res.ok) throw new Error('symbols failed');
         return res.json();
-    },
-
-    async refreshSymbols() {
-        const res = await fetch(`${API_BASE}/symbols/refresh`, { method: 'POST' });
-        if (!res.ok) throw new Error('refresh failed');
-        return res.json();
     }
 };
 
@@ -285,7 +279,7 @@ async function init() {
         btn.disabled = true;
         btn.textContent = '刷新中...';
         try {
-            await api.refreshSymbols();
+            // GET /symbols 本身就是每次从MySQL实时读取, 无需单独的 refresh 接口
             await loadSymbolCount();
         } catch (e) {
             console.error('Refresh symbols failed', e);

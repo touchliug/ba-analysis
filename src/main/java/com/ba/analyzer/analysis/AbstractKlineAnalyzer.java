@@ -20,16 +20,6 @@ public abstract class AbstractKlineAnalyzer implements Analyzer {
         this.appProperties = appProperties;
     }
 
-    /**
-     * 从默认参数推导所需日线天数。多数K线分析器的默认参数含"days";
-     * 反转做多等用其它键的分析器自行覆盖此方法。
-     */
-    @Override
-    public int requiredDays() {
-        Object days = getDefaultParams().get("days");
-        return days instanceof Number n ? n.intValue() : 0;
-    }
-
     @Override
     public AnalysisReport analyze(List<String> symbols) {
         Map<String, Object> usedParams = getDefaultParams();

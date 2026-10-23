@@ -37,14 +37,6 @@ public interface Analyzer {
         return false;
     }
 
-    /**
-     * 该分析器需要的日线历史天数(用于daily批次预加载)。
-     * 默认0; AbstractKlineAnalyzer会从默认参数的"days"推导, 无"days"的分析器自行覆盖。
-     */
-    default int requiredDays() {
-        return 0;
-    }
-
     default int getIntParam(Map<String, Object> params, String key, int defaultValue) {
         if (params == null || !params.containsKey(key)) return defaultValue;
         Object val = params.get(key);

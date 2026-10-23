@@ -1,8 +1,6 @@
 package com.ba.analyzer.config;
 
-import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -14,37 +12,16 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "binance")
 public class AppProperties {
 
-    @NotBlank
-    private String baseUrl = "https://fapi.binance.com";
-    private ProxyConfig proxy = new ProxyConfig();
     private ConcurrencyConfig concurrency = new ConcurrencyConfig();
-    private SymbolConfig symbol = new SymbolConfig();
     private AnalysisConfig analysis = new AnalysisConfig();
     private ScheduleConfig schedule = new ScheduleConfig();
     private ReportConfig report = new ReportConfig();
 
-    @Data
-    public static class ProxyConfig {
-        private boolean enabled = true;
-        private String host = "127.0.0.1";
-        private int port = 7890;
-    }
-
+    /** 原币安客户端时代的并发配置, 拆分后只剩 historyBufferDays 被分析器使用。 */
     @Data
     public static class ConcurrencyConfig {
-        @Min(1) @Max(50)
-        private int maxRequests = 5;
-        @Min(0)
-        private long requestIntervalMs = 200;
         @Min(1)
         private int historyBufferDays = 30;
-        @Min(10)
-        private int taskTimeoutSeconds = 120;
-    }
-
-    @Data
-    public static class SymbolConfig {
-        private String filePath = "./data/symbols.json";
     }
 
     @Data

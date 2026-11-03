@@ -102,6 +102,11 @@ const marketApi = {
             const res = await fetch(`${MARKET_BASE}/premium/${encodeURIComponent(symbol)}`);
             return res.ok ? res.json() : null;
         } catch { return null; }
+    },
+    async flow(symbol, period, limit) {
+        const res = await fetch(`${MARKET_BASE}/flow/${encodeURIComponent(symbol)}?period=${encodeURIComponent(period)}&limit=${limit}`);
+        if (!res.ok) throw new Error('flow failed');
+        return res.json();
     }
 };
 
@@ -115,6 +120,7 @@ const RATIO_LABELS = {
 const TICKER_TITLES = { gainers: '24h 涨幅榜', losers: '24h 跌幅榜', volume: '24h 成交额榜' };
 const MARKET_ITEMS = [
     { view: 'market-lsr', label: '多空比' },
+    { view: 'market-flow', label: '资金流' },
     { view: 'market-gainers', label: '涨幅榜' },
     { view: 'market-losers', label: '跌幅榜' },
     { view: 'market-volume', label: '成交额榜' },
@@ -130,7 +136,11 @@ const state = {
     // 行情视图参数
     lsrType: 'TOP_POSITION',
     marketLimit: 50,
-    fundingOrder: 'desc'
+    fundingOrder: 'desc',
+    // 资金流视图参数
+    flowSymbol: 'BTCUSDT',
+    flowPeriod: '1h',
+    flowLimit: 72
 };
 
 /* ===== Sidebar ===== */
@@ -183,6 +193,7 @@ function renderCurrentView() {
     switch (state.currentView) {
         case 'detail': renderDetail(state.currentAnalyzer); break;
         case 'market-lsr': renderMarketLsr(); break;
+        case 'market-flow': renderFlow(); break;
         case 'market-gainers': renderTickerBoard('gainers'); break;
         case 'market-losers': renderTickerBoard('losers'); break;
         case 'market-volume': renderTickerBoard('volume'); break;
@@ -765,6 +776,150 @@ async function loadFunding() {
     } catch (e) {
         box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
     }
+}
+
+/* ===== Market: 资金流 (价格 / 主动买占比 / OI) ===== */
+function renderFlow() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        <div class="page-title">资金流：价格 / 主动买占比 / OI / 大户持仓比</div>
+        <div class="detail-section">
+            <div class="market-toolbar">
+                <input type="text" id="flow-symbol" class="toolbar-input wide" placeholder="币种 如 AINUSDT" value="${escHtml(state.flowSymbol)}">
+                <select id="flow-period" class="toolbar-select">
+                    ${['15m', '1h', '4h', '1d'].map(p => `<option value="${p}"${state.flowPeriod === p ? ' selected' : ''}>${p}</option>`).join('')}
+                </select>
+                <input type="number" id="flow-limit" class="toolbar-input" value="${state.flowLimit}" min="10" max="500">
+                <button class="btn-primary" id="flow-go">查询</button>
+            </div>
+            <div class="flow-hint">主动买占比 = 主动买入成交额 ÷ 总成交额（&gt;50% 为主动买占优）；OI 看币数变化判断加仓还是减仓（名义值会随价格膨胀）；大户持仓比 &gt;1 表示大户持仓偏多。</div>
+            <div id="market-result"><div class="loading">加载中...</div></div>
+        </div>`;
+    const doLoad = () => {
+        state.flowSymbol = (document.getElementById('flow-symbol').value || '').trim().toUpperCase();
+        state.flowPeriod = document.getElementById('flow-period').value;
+        state.flowLimit = clampLimit(document.getElementById('flow-limit').value);
+        if (state.flowSymbol) loadFlow();
+    };
+    document.getElementById('flow-go').addEventListener('click', doLoad);
+    document.getElementById('flow-symbol').addEventListener('keydown', e => { if (e.key === 'Enter') doLoad(); });
+    loadFlow();
+}
+
+async function loadFlow() {
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    box.innerHTML = `<div class="loading">加载中...</div>`;
+    try {
+        const data = await marketApi.flow(state.flowSymbol, state.flowPeriod, state.flowLimit);
+        const pts = (data && data.points) || [];
+        if (pts.length === 0) { box.innerHTML = `<div class="empty-state">暂无数据（该币种可能未入库）</div>`; return; }
+
+        const last = pts[pts.length - 1];
+        const first = pts[0];
+        const oiChg = (last.oiCoin != null && first.oiCoin != null && first.oiCoin > 0)
+            ? (last.oiCoin - first.oiCoin) / first.oiCoin * 100 : null;
+        const buyCls = last.buyPct == null ? 'neutral' : (last.buyPct >= 50 ? 'positive' : 'negative');
+
+        const sum = `<div class="result-summary">
+            <strong>${escHtml(data.symbol)}</strong> · ${escHtml(data.period)} · 共 ${pts.length} 根<br>
+            最新收盘 ${fmtNum(last.close)} · 主动买 <span class="${buyCls}">${last.buyPct == null ? '--' : last.buyPct.toFixed(1) + '%'}</span>
+            · OI ${last.oiCoin == null ? '--' : fmtNum(last.oiCoin) + ' 枚'}
+            · 大户持仓比 ${last.topPos == null ? '--' : last.topPos.toFixed(3)}
+            · 区间 OI 变化 ${pctSpan(oiChg, 1)}
+        </div>`;
+
+        const rows = pts.slice(-12).reverse().map(p => `<tr>
+            <td>${escHtml(formatTime(p.t))}</td>
+            <td>${p.close == null ? '--' : fmtNum(p.close)}</td>
+            <td>${p.buyPct == null ? '--' : `<span class="${p.buyPct >= 50 ? 'positive' : 'negative'}">${p.buyPct.toFixed(1)}%</span>`}</td>
+            <td>${p.oiCoin == null ? '--' : fmtNum(p.oiCoin)}</td>
+            <td>${p.oiUsd == null ? '--' : fmtNum(p.oiUsd)}</td>
+            <td>${p.topPos == null ? '--' : p.topPos.toFixed(3)}</td>
+        </tr>`).join('');
+
+        box.innerHTML = sum
+            + `<div class="flow-chart-wrap">${flowChart(pts)}</div>`
+            + `<div class="result-table-wrap"><table class="result-table">
+                 <thead><tr><th>时间</th><th>收盘价</th><th>主动买占比</th><th>OI(币)</th><th>OI(USDT)</th><th>大户持仓比</th></tr></thead>
+                 <tbody>${rows}</tbody></table></div>`;
+    } catch (e) {
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
+    }
+}
+
+/** 四面板 SVG 图: 价格折线 / 主动买占比柱(50% 基准) / OI 币数折线 / 大户持仓比折线。 */
+function flowChart(pts) {
+    const W = 980, H = 560, padL = 72, padR = 18, padT = 14, padB = 22, gap = 28;
+    const n = pts.length;
+    const plotW = W - padL - padR;
+    const panelH = (H - padT - padB - gap * 3) / 4;
+    const xAt = i => padL + (n <= 1 ? plotW / 2 : plotW * i / (n - 1));
+
+    const panels = [
+        { key: 'close', label: '收盘价', color: '#1890ff', kind: 'line' },
+        { key: 'buyPct', label: '主动买占比 %', color: '#52c41a', kind: 'bar', min: 0, max: 100, base: 50 },
+        { key: 'oiCoin', label: 'OI（币数）', color: '#fa8c16', kind: 'line' },
+        { key: 'topPos', label: '大户持仓多空比', color: '#722ed1', kind: 'line', base: 1 }
+    ];
+
+    let svg = `<svg class="flow-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
+    panels.forEach((s, si) => {
+        const top = padT + si * (panelH + gap);
+        const vals = pts.map(p => p[s.key]).filter(v => v != null && !isNaN(v));
+        if (!vals.length) {
+            svg += `<rect x="${padL}" y="${top}" width="${plotW}" height="${panelH}" fill="#fafafa" stroke="#eee"/>`
+                 + `<text x="${padL + 8}" y="${top + 16}" font-size="12" fill="#bbb">${s.label}（无数据）</text>`;
+            return;
+        }
+        let lo = s.min != null ? s.min : Math.min(...vals);
+        let hi = s.max != null ? s.max : Math.max(...vals);
+        if (s.min == null) { const pad = (hi - lo) * 0.08 || Math.abs(hi) * 0.01 || 1; lo -= pad; hi += pad; }
+        const yAt = v => top + panelH - (hi === lo ? panelH / 2 : (v - lo) / (hi - lo) * panelH);
+
+        svg += `<rect x="${padL}" y="${top}" width="${plotW}" height="${panelH}" fill="#fafafa" stroke="#eee"/>`;
+        svg += `<text x="8" y="${top + 13}" font-size="12" fill="#666">${s.label}</text>`;
+        svg += `<text x="${padL - 6}" y="${top + 10}" font-size="10" fill="#999" text-anchor="end">${fmtNum(hi)}</text>`;
+        svg += `<text x="${padL - 6}" y="${top + panelH}" font-size="10" fill="#999" text-anchor="end">${fmtNum(lo)}</text>`;
+
+        if (s.base != null) {
+            svg += `<line x1="${padL}" y1="${yAt(s.base)}" x2="${padL + plotW}" y2="${yAt(s.base)}" stroke="#bbb" stroke-dasharray="3 3"/>`;
+        }
+
+        if (s.kind === 'bar') {
+            const bw = Math.max(1, plotW / n * 0.6);
+            pts.forEach((p, i) => {
+                const v = p[s.key];
+                if (v == null || isNaN(v)) return;
+                const y = yAt(v), y0 = yAt(s.base);
+                svg += `<rect x="${(xAt(i) - bw / 2).toFixed(1)}" y="${Math.min(y, y0).toFixed(1)}" width="${bw.toFixed(1)}"`
+                     + ` height="${Math.max(1, Math.abs(y0 - y)).toFixed(1)}" fill="${v >= s.base ? '#52c41a' : '#ff4d4f'}" opacity="0.7"/>`;
+            });
+        } else {
+            let path = '', seg = '';
+            pts.forEach((p, i) => {
+                const v = p[s.key];
+                if (v == null || isNaN(v)) { if (seg) { path += seg; seg = ''; } return; }
+                seg += (seg === '' ? 'M' : 'L') + xAt(i).toFixed(1) + ',' + yAt(v).toFixed(1) + ' ';
+            });
+            if (seg) path += seg;
+            svg += `<path d="${path}" fill="none" stroke="${s.color}" stroke-width="1.8"/>`;
+        }
+    });
+
+    svg += `<text x="${padL}" y="${H - 6}" font-size="10" fill="#999">${escHtml(formatTime(pts[0].t))}</text>`;
+    svg += `<text x="${W - padR}" y="${H - 6}" font-size="10" fill="#999" text-anchor="end">${escHtml(formatTime(pts[n - 1].t))}</text>`;
+    return svg + '</svg>';
+}
+
+/** 紧凑数字: 亿 / 万 / 两位小数 / 四位有效数字。 */
+function fmtNum(v) {
+    if (v == null || isNaN(v)) return '--';
+    const a = Math.abs(v);
+    if (a >= 1e8) return (v / 1e8).toFixed(2) + '亿';
+    if (a >= 1e4) return (v / 1e4).toFixed(2) + '万';
+    if (a >= 1) return v.toFixed(2);
+    return Number(v.toPrecision(4)).toString();
 }
 
 /* ===== Bootstrap ===== */

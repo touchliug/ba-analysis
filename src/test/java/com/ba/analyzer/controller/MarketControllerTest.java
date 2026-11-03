@@ -138,4 +138,68 @@ class MarketControllerTest {
         ResponseEntity<List<com.ba.analyzer.model.Ticker24hData>> resp = controller.tickerGainers(0);
         assertEquals(1, resp.getBody().size()); // limit 0 -> clamped to 1
     }
+
+    // ---- flow: 价格 / 主动买占比 / OI 三合一 ----
+
+    private com.ba.analyzer.model.KlineData kline(long openTime, String close, String quoteVol, String takerBuy) {
+        com.ba.analyzer.model.KlineData k = new com.ba.analyzer.model.KlineData();
+        k.setOpenTime(openTime);
+        k.setClose(close);
+        k.setQuoteAssetVolume(quoteVol);
+        k.setTakerBuyQuoteAssetVolume(takerBuy);
+        return k;
+    }
+
+    private com.ba.analyzer.model.OpenInterestData oi(long ts, String coin, String usd) {
+        com.ba.analyzer.model.OpenInterestData o = new com.ba.analyzer.model.OpenInterestData();
+        o.setTimestamp(ts);
+        o.setSumOpenInterest(coin);
+        o.setSumOpenInterestValue(usd);
+        return o;
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void flowMergesPriceTakerOiAndTopPosition() {
+        long t = 1_700_000_000_000L;
+        when(store.getKlines("XUSDT", "1h", 10))
+                .thenReturn(List.of(kline(t, "0.5", "1000", "600")));
+        // OI / LSR 落在同一小时桶内(差 7 分钟), 仍应匹配上
+        when(store.getOpenInterestHistory("XUSDT", "1h", 10))
+                .thenReturn(List.of(oi(t + 7 * 60_000L, "123", "456")));
+        LongShortRatioData ratio = lsr("XUSDT", 1.8);
+        ratio.setTimestamp(t + 3 * 60_000L);
+        when(store.getLongShortRatio("XUSDT", "TOP_POSITION", "1h", 10))
+                .thenReturn(List.of(ratio));
+
+        ResponseEntity<Map<String, Object>> resp = controller.flow("XUSDT", "1h", 10);
+        assertEquals(200, resp.getStatusCode().value());
+
+        List<Map<String, Object>> points = (List<Map<String, Object>>) resp.getBody().get("points");
+        assertEquals(1, points.size());
+        Map<String, Object> p = points.get(0);
+        assertEquals(0.5, (Double) p.get("close"), 1e-9);
+        assertEquals(60.0, (Double) p.get("buyPct"), 1e-9);
+        assertEquals(123.0, (Double) p.get("oiCoin"), 1e-9);
+        assertEquals(456.0, (Double) p.get("oiUsd"), 1e-9);
+        assertEquals(1.8, (Double) p.get("topPos"), 1e-9);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void flowToleratesMissingOiAndZeroVolume() {
+        long t = 1_700_003_600_000L;
+        when(store.getKlines("XUSDT", "1h", 5))
+                .thenReturn(List.of(kline(t, "1.2", "0", "0")));
+        when(store.getOpenInterestHistory("XUSDT", "1h", 5)).thenReturn(List.of());
+        when(store.getLongShortRatio("XUSDT", "TOP_POSITION", "1h", 5)).thenReturn(List.of());
+
+        ResponseEntity<Map<String, Object>> resp = controller.flow("XUSDT", "1h", 5);
+        Map<String, Object> p = ((List<Map<String, Object>>) resp.getBody().get("points")).get(0);
+        assertNull(p.get("buyPct"));   // 成交额为 0 -> 不除零, 返回 null
+        assertNull(p.get("oiCoin"));   // OI 未同步 -> null, 前端跳过绘制
+        assertNull(p.get("oiUsd"));
+        assertNull(p.get("topPos"));   // 多空比未同步 -> null
+        assertEquals(1.2, (Double) p.get("close"), 1e-9);
+    }
 }

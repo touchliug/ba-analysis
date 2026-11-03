@@ -1,6 +1,8 @@
 package com.ba.analyzer.controller;
 
+import com.ba.analyzer.model.KlineData;
 import com.ba.analyzer.model.LongShortRatioData;
+import com.ba.analyzer.model.OpenInterestData;
 import com.ba.analyzer.model.PremiumIndexData;
 import com.ba.analyzer.model.Ticker24hData;
 import com.ba.analyzer.service.JdbcDataStore;
@@ -8,7 +10,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -126,5 +130,77 @@ public class MarketController {
                 .limit(clampLimit(limit))
                 .toList();
         return ResponseEntity.ok(ranked);
+    }
+
+    // ---- 资金流: 价格 / 主动买占比 / OI / 大户持仓比 四合一 ----
+
+    /**
+     * 单币时间序列: 收盘价 + 主动买占比 + OI(币数/名义值) + 大户持仓多空比, 按同一周期对齐。
+     * 供前端四线图使用; 未同步到的时点对应字段为 null, 前端跳过绘制。
+     * 主动买占比 = taker_buy_quote / quote_asset_volume; 大户持仓比来自 long_short_ratio(TOP_POSITION)。
+     */
+    @GetMapping("/flow/{symbol}")
+    public ResponseEntity<Map<String, Object>> flow(
+            @PathVariable String symbol,
+            @RequestParam(defaultValue = "1h") String period,
+            @RequestParam(defaultValue = "72") int limit) {
+        int lim = clampLimit(limit);
+        long barMs = barMillis(period);
+
+        List<KlineData> klines = store.getKlines(symbol, period, lim);
+        // OI / LSR 的时间戳与 K 线 open_time 理论上对齐, 但按周期取整对齐更稳(避免秒级误差导致整行落空)
+        Map<Long, OpenInterestData> oiByBucket = new HashMap<>();
+        for (OpenInterestData o : store.getOpenInterestHistory(symbol, period, lim)) {
+            oiByBucket.put(Math.floorDiv(o.getTimestamp(), barMs), o);
+        }
+        Map<Long, Double> topPosByBucket = new HashMap<>();
+        for (LongShortRatioData r : store.getLongShortRatio(symbol, "TOP_POSITION", period, lim)) {
+            topPosByBucket.put(Math.floorDiv(r.getTimestamp(), barMs), r.getRatioValue());
+        }
+
+        List<Map<String, Object>> points = new ArrayList<>(klines.size());
+        for (KlineData k : klines) {
+            double vol = k.getQuoteVolume();
+            Double buyPct = vol <= 0 ? null
+                    : Math.round(parseDouble(k.getTakerBuyQuoteAssetVolume()) / vol * 1000.0) / 10.0;
+            long bucket = Math.floorDiv(k.getOpenTime(), barMs);
+            OpenInterestData oi = oiByBucket.get(bucket);
+
+            Map<String, Object> p = new LinkedHashMap<>();
+            p.put("t", k.getOpenTime());
+            p.put("close", k.getClosePrice());
+            p.put("buyPct", buyPct);
+            p.put("oiCoin", oi == null ? null : oi.getOpenInterestValue());
+            p.put("oiUsd", oi == null ? null : oi.getOpenInterestNotionalValue());
+            p.put("topPos", topPosByBucket.get(bucket));
+            points.add(p);
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("symbol", symbol);
+        body.put("period", period);
+        body.put("points", points);
+        return ResponseEntity.ok(body);
+    }
+
+    /** 周期字符串 → 毫秒; 未知周期按 1h 处理(与 JdbcDataStore 的查询口径一致即可)。 */
+    private static long barMillis(String period) {
+        return switch (period == null ? "1h" : period) {
+            case "5m" -> 300_000L;
+            case "15m" -> 900_000L;
+            case "30m" -> 1_800_000L;
+            case "4h" -> 14_400_000L;
+            case "1d" -> 86_400_000L;
+            default -> 3_600_000L;
+        };
+    }
+
+    private static double parseDouble(String s) {
+        if (s == null || s.isEmpty()) return 0;
+        try {
+            return Double.parseDouble(s);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 }

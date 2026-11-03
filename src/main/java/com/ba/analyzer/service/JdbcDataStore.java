@@ -66,17 +66,33 @@ public class JdbcDataStore {
      * 每 symbol 结果按 open_time 升序 (末尾最新), 与 {@link #getKlines} 一致。
      */
     public Map<String, List<KlineData>> getKlinesBatch(List<String> symbols, String interval, int limit) {
+        return getKlinesBatch(symbols, interval, limit, 0L);
+    }
+
+    /**
+     * 同上, 但可限定 open_time &gt;= sinceMs(传 0 表示不限定)。
+     *
+     * 为什么需要下界: ROW_NUMBER() 必须先把该 symbol 的**全部**匹配行物化才能过滤 rn &lt;= limit,
+     * 所以不带时间下界时, 扫描量随历史长度线性增长 —— 实测 1h(约 3700 根/币) 要 17.6s,
+     * 而加 60 天下界后只要 6.6s; 日线补满 3 年后同理(2.7s → 6~7s)。
+     */
+    public Map<String, List<KlineData>> getKlinesBatch(List<String> symbols, String interval, int limit, long sinceMs) {
         Map<String, List<KlineData>> result = new HashMap<>();
         if (symbols == null || symbols.isEmpty()) return result;
+        boolean bounded = sinceMs > 0;
         for (List<String> chunk : partition(symbols, IN_CHUNK)) {
             String sql = "SELECT * FROM (SELECT k.*, ROW_NUMBER() OVER "
                     + "(PARTITION BY symbol ORDER BY open_time DESC) rn "
-                    + "FROM klines k WHERE `interval`=? AND symbol IN (" + inPlaceholders(chunk.size()) + ")) t "
+                    + "FROM klines k WHERE `interval`=?"
+                    + (bounded ? " AND open_time >= ?" : "")
+                    + " AND symbol IN (" + inPlaceholders(chunk.size()) + ")) t "
                     + "WHERE t.rn <= ? ORDER BY symbol, open_time ASC";
-            Object[] args = new Object[chunk.size() + 2];
-            args[0] = interval;
-            for (int i = 0; i < chunk.size(); i++) args[i + 1] = chunk.get(i);
-            args[chunk.size() + 1] = limit;
+            Object[] args = new Object[chunk.size() + (bounded ? 3 : 2)];
+            int i = 0;
+            args[i++] = interval;
+            if (bounded) args[i++] = sinceMs;
+            for (String s : chunk) args[i++] = s;
+            args[i] = limit;
             jdbc.query(sql, (RowCallbackHandler) rs ->
                     result.computeIfAbsent(rs.getString("symbol"), s -> new ArrayList<>())
                             .add(mapKline(rs, 0)), args);

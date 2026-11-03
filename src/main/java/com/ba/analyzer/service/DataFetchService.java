@@ -28,12 +28,37 @@ public class DataFetchService {
 
     private final JdbcDataStore dataStore;
 
+    private static final long DAY_MS = 86_400_000L;
+    /** 批量 K 线缓存有效期: 一批分析(多个分析器串行)几秒内跑完, 60s 足够覆盖且不会明显过时。 */
+    private static final long KLINE_CACHE_TTL_MS = 60_000L;
+
+    /**
+     * 最近一次 1d 批量查询的缓存。各分析器的 days 不同(7/14/30…), 但数据源相同:
+     * 缓存住"取过的最大根数", 小 days 的请求直接切片复用, 避免 11 个分析器各查一遍库。
+     */
+    private record CachedKlines(long at, int fetchedLimit, List<String> symbols,
+                                Map<String, List<KlineData>> data) {}
+
+    private volatile CachedKlines klineCache;
+
     public Map<String, List<KlineData>> fetchDailyKlines(List<String> symbols, int days) {
-        Map<String, List<KlineData>> stored = dataStore.getKlinesBatch(symbols, "1d", days + 1);
+        long now = System.currentTimeMillis();
+        int need = days + 1;
+
+        CachedKlines c = klineCache;
+        if (c != null && now - c.at() < KLINE_CACHE_TTL_MS
+                && c.fetchedLimit() >= need && c.symbols().equals(symbols)) {
+            return trimKlinesByPeriod(c.data(), days);
+        }
+
+        // 时间下界: 只取需要的区间(多留 10 根余量吸收停牌/缺口), 避免窗口函数扫该币全部历史。
+        long since = now - (long) (need + 10) * DAY_MS;
+        Map<String, List<KlineData>> stored = dataStore.getKlinesBatch(symbols, "1d", need, since);
         if (stored.size() < symbols.size() * 0.9) {
             log.warn("DB has 1d klines for only {}/{} symbols; sync service may be behind",
                     stored.size(), symbols.size());
         }
+        klineCache = new CachedKlines(now, need, symbols, stored);
         return trimKlinesByPeriod(stored, days);
     }
 

@@ -29,7 +29,7 @@ import java.util.Set;
 public class StageService {
 
     private static final long DAY = 86_400_000L;
-    private static final int LOOKBACK = 180;
+    private static final int LOOKBACK = 120;
     private static final int Z_WINDOW = 90;
     private static final int MIN_BARS = 40;
 
@@ -253,7 +253,42 @@ public class StageService {
 
     // ---------------- 数据加载 ----------------
 
+    private record CachedSeries(long at, Map<String, List<Day>> data) {}
+
+    /** 一次加载 522 币 × 180 天要几十秒，页面每切一次都要读，故做 60 秒缓存。 */
+    private volatile CachedSeries seriesCache;
+
+    private static final long SERIES_TTL_MS = 60_000L;
+
+    /** 启动后异步预热：冷加载约 20s，预热后第一个用户请求就是热的。 */
+    @jakarta.annotation.PostConstruct
+    void warmUp() {
+        Thread t = new Thread(() -> {
+            try {
+                long t0 = System.currentTimeMillis();
+                load();
+                log.info("stage cache warmed in {} ms", System.currentTimeMillis() - t0);
+            } catch (Exception e) {
+                log.warn("stage cache warm-up failed (will retry on first request)", e);
+            }
+        }, "stage-warmup");
+        t.setDaemon(true);
+        t.start();
+    }
+
     Map<String, List<Day>> load() {
+        CachedSeries c = seriesCache;
+        long now = System.currentTimeMillis();
+        if (c != null && now - c.at() < SERIES_TTL_MS) return c.data();
+
+        Map<String, List<Day>> loaded = loadFromDb();
+        // 用加载完成后的时间戳: loadFromDb 要几十秒, 用调用前的时间会让缓存一写入就过期
+        seriesCache = new CachedSeries(System.currentTimeMillis(), loaded);
+        log.info("stage series cache refreshed: {} symbols", loaded.size());
+        return loaded;
+    }
+
+    private Map<String, List<Day>> loadFromDb() {
         long since = System.currentTimeMillis() - (long) LOOKBACK * DAY;
 
         Set<String> delisted = new HashSet<>(jdbc.queryForList(
@@ -281,28 +316,35 @@ public class StageService {
                             .put(rs.getLong("t"), ((Number) v).doubleValue());
                 }, since);
 
+        // 资金费率: 在 SQL 里按天聚合。库里是 8h 一条, 120 天 × 522 币约 18 万行,
+        // 全量传回 Java 再聚合明显慢于让 MySQL 做 GROUP BY。
         Map<String, Map<Long, double[]>> fr = new HashMap<>();
-        jdbc.query("SELECT symbol, funding_time, CAST(funding_rate AS DECIMAL(20,10)) r "
-                 + "FROM funding_rate WHERE funding_time >= ?",
+        jdbc.query("SELECT symbol, (funding_time DIV ?) * ? AS day, "
+                 + "AVG(CAST(funding_rate AS DECIMAL(20,10))) r, COUNT(*) n "
+                 + "FROM funding_rate WHERE funding_time >= ? GROUP BY symbol, day",
                 rs -> {
-                    long dayKey = rs.getLong(2) / DAY * DAY;
-                    double[] acc = fr.computeIfAbsent(rs.getString(1), x -> new HashMap<>())
+                    long dayKey = rs.getLong("day");
+                    double[] acc = fr.computeIfAbsent(rs.getString("symbol"), x -> new HashMap<>())
                             .computeIfAbsent(dayKey, x -> new double[2]);
-                    acc[0] += rs.getDouble(3);
-                    acc[1]++;
-                }, since);
+                    acc[0] = rs.getDouble("r") * rs.getInt("n");
+                    acc[1] = rs.getInt("n");
+                }, DAY, DAY, since);
 
+        // 多空比只用到"当前值"(分类与筛选都不对它做 z-score), 因此只取最近 3 天, 不跟着 120 天窗口走。
+        // 这一步是全流程最贵的查询: 全量拉 120 天 = 522 币 × 120 天 × 24h × 2 类 ≈ 300 万行。
         Map<String, Map<Long, double[]>> lsr = new HashMap<>();
-        jdbc.query("SELECT symbol, `timestamp` t, ratio_type, CAST(long_short_ratio AS DECIMAL(20,6)) r "
+        jdbc.query("SELECT symbol, (`timestamp` DIV ?) * ? AS day, ratio_type, "
+                 + "AVG(CAST(long_short_ratio AS DECIMAL(20,6))) r "
                  + "FROM long_short_ratio WHERE period='1h' AND `timestamp` >= ? "
-                 + "AND ratio_type IN ('TOP_POSITION','GLOBAL_ACCOUNT')",
+                 + "AND ratio_type IN ('TOP_POSITION','GLOBAL_ACCOUNT') "
+                 + "GROUP BY symbol, day, ratio_type",
                 rs -> {
-                    long dayKey = rs.getLong("t") / DAY * DAY;
+                    long dayKey = rs.getLong("day");
                     double[] acc = lsr.computeIfAbsent(rs.getString("symbol"), x -> new HashMap<>())
                             .computeIfAbsent(dayKey, x -> new double[]{Double.NaN, Double.NaN});
                     if ("TOP_POSITION".equals(rs.getString("ratio_type"))) acc[0] = rs.getDouble("r");
                     else acc[1] = rs.getDouble("r");
-                }, since);
+                }, DAY, DAY, System.currentTimeMillis() - 3 * DAY);
 
         Map<String, List<Day>> out = new LinkedHashMap<>();
         for (var e : k.entrySet()) {

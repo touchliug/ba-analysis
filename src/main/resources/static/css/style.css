@@ -523,3 +523,19 @@ body {
 }
 .stage-why ul { margin: 6px 0 0 18px; color: #555; line-height: 1.8; }
 .stage-why p { margin-top: 6px; color: #555; line-height: 1.8; }
+
+/* ===== 选币页 ===== */
+.screen-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.screen-tab {
+    padding: 5px 14px;
+    border: 1px solid #d9d9d9;
+    background: #fff;
+    border-radius: 16px;
+    font-size: 13px;
+    color: #555;
+    cursor: pointer;
+    transition: all .15s;
+}
+.screen-tab:hover { border-color: #1890ff; color: #1890ff; }
+.screen-tab.active { background: #1890ff; border-color: #1890ff; color: #fff; }
+.screen-reason { color: #888; font-size: 12px; max-width: 220px; }

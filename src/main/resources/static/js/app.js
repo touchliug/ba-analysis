@@ -119,6 +119,16 @@ const marketApi = {
         const res = await fetch(`${MARKET_BASE}/stage/${encodeURIComponent(symbol)}`);
         if (!res.ok) throw new Error('stage detail failed');
         return res.json();
+    },
+    async screenTypes() {
+        const res = await fetch(`${MARKET_BASE}/screen/types`);
+        if (!res.ok) throw new Error('screen types failed');
+        return res.json();
+    },
+    async screen(type, limit) {
+        const res = await fetch(`${MARKET_BASE}/screen?type=${encodeURIComponent(type)}&limit=${limit}`);
+        if (!res.ok) throw new Error('screen failed');
+        return res.json();
     }
 };
 
@@ -131,6 +141,7 @@ const RATIO_LABELS = {
 };
 const TICKER_TITLES = { gainers: '24h 涨幅榜', losers: '24h 跌幅榜', volume: '24h 成交额榜' };
 const MARKET_ITEMS = [
+    { view: 'market-screen', label: '选币' },
     { view: 'market-stage', label: '阶段扫描' },
     { view: 'market-lsr', label: '多空比' },
     { view: 'market-flow', label: '资金流' },
@@ -157,7 +168,10 @@ const state = {
     // 阶段扫描参数
     stageFilter: '',
     stageMinMatch: 0,
-    stageLimit: 200
+    stageLimit: 200,
+    // 选币参数
+    screenType: 'anomaly',
+    screenLimit: 50
 };
 
 /* ===== Sidebar ===== */
@@ -211,6 +225,7 @@ function renderCurrentView() {
         case 'detail': renderDetail(state.currentAnalyzer); break;
         case 'market-lsr': renderMarketLsr(); break;
         case 'market-stage': renderStage(); break;
+        case 'market-screen': renderScreen(); break;
         case 'market-flow': renderFlow(); break;
         case 'market-gainers': renderTickerBoard('gainers'); break;
         case 'market-losers': renderTickerBoard('losers'); break;
@@ -790,6 +805,83 @@ async function loadFunding() {
             <div class="result-summary">共 ${rows.length} 条 · 资金费每 8 小时结算</div>
             <div class="result-table-wrap"><table class="result-table">
                 <thead><tr><th>#</th><th>币种</th><th>资金费率</th><th>标记价</th><th>下次结算</th></tr></thead>
+                <tbody>${trs}</tbody></table></div>`;
+    } catch (e) {
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
+    }
+}
+
+/* ===== Market: 选币（六种筛选器） ===== */
+function renderScreen() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        <div class="page-title">选币</div>
+        <div class="detail-section">
+            <div id="screen-tabs" class="screen-tabs"><div class="loading">加载筛选器…</div></div>
+            <div class="market-toolbar" style="margin-top:10px">
+                <label class="toolbar-label">条数</label>
+                <input type="number" id="sc-limit" class="toolbar-input" value="${state.screenLimit}" min="5" max="500" step="5">
+                <button class="btn-primary" id="sc-go">刷新</button>
+                <span id="sc-desc" class="flow-hint" style="margin:0"></span>
+            </div>
+            <div id="market-result"><div class="loading">加载中...</div></div>
+        </div>`;
+    document.getElementById('sc-go').addEventListener('click', () => {
+        state.screenLimit = clampLimit(document.getElementById('sc-limit').value);
+        loadScreen();
+    });
+    loadScreen();
+}
+
+async function loadScreen() {
+    const tabs = document.getElementById('screen-tabs');
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    try {
+        if (!tabs.dataset.ready) {
+            const defs = await marketApi.screenTypes();
+            tabs.innerHTML = defs.map(d =>
+                `<button class="screen-tab${d.type === state.screenType ? ' active' : ''}" data-type="${escHtml(d.type)}" title="${escHtml(d.desc)}">${escHtml(d.title)}</button>`
+            ).join('');
+            tabs.dataset.ready = '1';
+            tabs.querySelectorAll('.screen-tab').forEach(btn => btn.addEventListener('click', () => {
+                state.screenType = btn.dataset.type;
+                tabs.querySelectorAll('.screen-tab').forEach(b => b.classList.toggle('active', b === btn));
+                const def = defs.find(d => d.type === state.screenType);
+                document.getElementById('sc-desc').textContent = def ? def.desc : '';
+                loadScreen();
+            }));
+            const def = defs.find(d => d.type === state.screenType);
+            if (def) document.getElementById('sc-desc').textContent = def.desc;
+        }
+
+        box.innerHTML = `<div class="loading">筛选中…</div>`;
+        const rows = await marketApi.screen(state.screenType, state.screenLimit);
+        if (!rows || rows.length === 0) { box.innerHTML = `<div class="empty-state">当前没有符合条件的币</div>`; return; }
+
+        const trs = rows.map(r => `<tr>
+            <td><strong>${escHtml(r.symbol)}</strong></td>
+            <td>${fmtNum(r.close)}</td>
+            <td>${pctSpan(r.ret1 * 100, 1)}</td>
+            <td>${pctSpan(r.ret7 * 100, 1)}</td>
+            <td>${r.volRatio.toFixed(2)}</td>
+            <td>${fmtZ(r.volRatioZ)}</td>
+            <td>${r.range20.toFixed(1)}%</td>
+            <td>${pctSpan(r.distHigh20 * 100, 1)}</td>
+            <td>${pctSpan(r.oiChg1 * 100, 1)}</td>
+            <td>${pctSpan(r.oiChg7 * 100, 1)}</td>
+            <td>${pctSpan(r.fundingApr * 100, 0)}</td>
+            <td>${r.divergence > 0 ? '+' : ''}${r.divergence.toFixed(2)}</td>
+            <td class="screen-reason">${escHtml(r.reason)}</td>
+        </tr>`).join('');
+
+        box.innerHTML = `
+            <div class="result-summary">共 ${rows.length} 个币</div>
+            <div class="result-table-wrap"><table class="result-table">
+                <thead><tr>
+                    <th>币种</th><th>现价</th><th>24h</th><th>7d</th><th>量比</th><th>量比z</th>
+                    <th>20d振幅</th><th>距高</th><th>OI 1d</th><th>OI 7d</th><th>费率年化</th><th>大户-散户</th><th>理由</th>
+                </tr></thead>
                 <tbody>${trs}</tbody></table></div>`;
     } catch (e) {
         box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;

@@ -6,6 +6,7 @@ import com.ba.analyzer.model.OpenInterestData;
 import com.ba.analyzer.model.PremiumIndexData;
 import com.ba.analyzer.model.Ticker24hData;
 import com.ba.analyzer.service.JdbcDataStore;
+import com.ba.analyzer.service.ScreenerService;
 import com.ba.analyzer.service.StageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +39,7 @@ public class MarketController {
 
     private final JdbcDataStore store;
     private final StageService stageService;
+    private final ScreenerService screenerService;
 
     private static int clampLimit(int limit) {
         return Math.min(Math.max(limit, 1), MAX_LIMIT);
@@ -160,6 +162,26 @@ public class MarketController {
     public ResponseEntity<StageService.Detail> stageOne(@PathVariable String symbol) {
         StageService.Detail d = stageService.detail(symbol);
         return d == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(d);
+    }
+
+    // ---- 选币筛选 ----
+
+    /** 可用筛选器列表（页面用于渲染标签页）。 */
+    @GetMapping(value = "/screen/types", produces = "application/json;charset=UTF-8")
+    public ResponseEntity<List<ScreenerService.Def>> screenTypes() {
+        return ResponseEntity.ok(ScreenerService.DEFS);
+    }
+
+    /**
+     * 按筛选器选币。type 见 {@link ScreenerService#DEFS}。
+     *
+     * <p>所有筛选器共用一套指标（日线 180 天），只做过滤 + 排序，不是买卖信号。
+     */
+    @GetMapping(value = "/screen", produces = "application/json;charset=UTF-8")
+    public ResponseEntity<List<ScreenerService.Row>> screen(
+            @RequestParam(defaultValue = "anomaly") String type,
+            @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(screenerService.screen(type, clampLimit(limit)));
     }
 
     // ---- 资金流: 价格 / 主动买占比 / OI / 大户持仓比 四合一 ----

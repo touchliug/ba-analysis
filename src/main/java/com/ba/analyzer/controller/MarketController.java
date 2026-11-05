@@ -6,6 +6,7 @@ import com.ba.analyzer.model.OpenInterestData;
 import com.ba.analyzer.model.PremiumIndexData;
 import com.ba.analyzer.model.Ticker24hData;
 import com.ba.analyzer.service.JdbcDataStore;
+import com.ba.analyzer.service.StageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -36,6 +37,7 @@ public class MarketController {
     private static final int MAX_LIMIT = 500;
 
     private final JdbcDataStore store;
+    private final StageService stageService;
 
     private static int clampLimit(int limit) {
         return Math.min(Math.max(limit, 1), MAX_LIMIT);
@@ -130,6 +132,34 @@ public class MarketController {
                 .limit(clampLimit(limit))
                 .toList();
         return ResponseEntity.ok(ranked);
+    }
+
+    // ---- 阶段识别（吸筹 / 试盘 / 拉升 / 派发 / 砸盘 / 冷却） ----
+
+    /**
+     * 全市场阶段扫描，按匹配度降序。可选按阶段过滤。
+     *
+     * <p>注意：这套标签是「状态描述」，回测显示没有预测力（各阶段后续收益与基线差 &lt;±1pp），
+     * 页面上不要当成买卖信号。
+     */
+    @GetMapping(value = "/stage", produces = "application/json;charset=UTF-8")
+    public ResponseEntity<List<StageService.Row>> stage(
+            @RequestParam(required = false) String stage,
+            @RequestParam(defaultValue = "0") int minMatch,
+            @RequestParam(defaultValue = "200") int limit) {
+        List<StageService.Row> rows = stageService.scan().stream()
+                .filter(r -> minMatch <= 0 || r.match() >= minMatch)
+                .filter(r -> stage == null || stage.isBlank() || stage.equals(r.stage()))
+                .limit(clampLimit(limit))
+                .toList();
+        return ResponseEntity.ok(rows);
+    }
+
+    /** 单币阶段详情：指标 + 证据 + 证伪条件 + 近 90 天收盘价。 */
+    @GetMapping("/stage/{symbol}")
+    public ResponseEntity<StageService.Detail> stageOne(@PathVariable String symbol) {
+        StageService.Detail d = stageService.detail(symbol);
+        return d == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(d);
     }
 
     // ---- 资金流: 价格 / 主动买占比 / OI / 大户持仓比 四合一 ----

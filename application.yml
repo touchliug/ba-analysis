@@ -1,0 +1,159 @@
+# ============================================================
+# ba-analysis 部署配置 (全量) —— 在部署机上生成 config/application.yml 后按需修改:
+#
+#   ./start.sh config        # 从本模板复制出 config/application.yml 并 chmod 600 (已存在则不覆盖)
+#
+# 本文件列出 ba-analysis 的全部配置项, 与 jar 内打包的 application.yml 一一对应。
+# start.sh 启动时本文件逐项覆盖 jar 内配置; 因每一项都显式写出, jar 内默认值不再起作用。
+# 改完 ./start.sh restart 即可, 无需重新打包。
+# 真实的 config/application.yml 已被 .gitignore 忽略, 只留在部署机上。
+#
+# 密钥: 默认用 ${...} 占位, 由 start.sh 自动加载的 .env 提供 (见 .env.example);
+#       也可直接把明文写在这里 (本文件已 chmod 600)。
+# 注意: 代码升级若新增配置项, 本文件未写的新项会沿用 jar 内默认值, 升级时请对照
+#       src/main/resources/application.yml 补齐。
+# ============================================================
+
+server:
+  port: 443
+  ssl:
+    enabled: true
+    # 相对 start.sh 所在目录; 改路径时同步修改 start.sh 的 KEYSTORE 变量 (启动前检查用)
+    key-store: file:./keystore.p12
+    key-store-type: PKCS12
+    key-store-password: ${SSL_KEYSTORE_PASSWORD:changeit}   # 须与 ./start.sh cert 生成时一致
+    key-alias: ba-analysis
+
+spring:
+  mvc:
+    log-resolved-exception: false
+  datasource:
+    # 部署机与 MySQL 同机时可改为 127.0.0.1。本服务只读, 不需要写权限的账号也可。
+    url: jdbc:mysql://43.155.216.33:3306/ba?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: root
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+logging:
+  level:
+    org.springframework.web.servlet.resource.ResourceHttpRequestHandler: ERROR
+
+binance:
+  concurrency:
+    history-buffer-days: 30       # 日线分析器额外多取的历史天数 (算量比/分位数用)
+
+  # 分析器: enabled 只控制定时批次是否自动跑; 页面/API 手动触发不受限。
+  # 页面上显示的参数默认值即取自这里。
+  analysis:
+
+    # 首阴日候选池 (已合并原"缓涨币": max-daily-rise-percent=3 + max-volume-ratio<1 即温和缩量连涨)
+    consecutive-rise:
+      enabled: false
+      days: 3
+      min-daily-rise-percent: 0.5
+      max-daily-rise-percent: 0
+      min-total-rise-percent: 0
+      volume-surge-ratio: 1.0
+      max-volume-ratio: 0
+
+    high-rise:
+      enabled: false
+      days: 7
+      threshold-percent: 50
+      volume-surge-ratio: 1.0
+
+    # 低位横盘 + 长下影插针 (支撑测试)
+    low-price-consolidation:
+      enabled: false
+      days: 7
+      max-price-change-percent: 10
+      low-price-percentile: 30
+      low-lookback-days: 90
+      wick-body-ratio: 2.0
+      min-wick-range-ratio: 0.5
+      volume-surge-ratio: 1.0
+
+    bullish-accumulation:
+      enabled: false
+      days: 14
+      min-score: 60
+      price-lookback-days: 30
+      drawdown-min: 10.0
+      require-higher-low: true
+      volume-increase-min: 1.2
+      range-contraction-max: 0.8
+
+    # 见顶做空: 连涨N天后首根阴线(已收盘), 次日开盘做空
+    first-yin-day:
+      enabled: false
+      days: 3
+      min-total-rise-percent: 15
+      min-yin-drop-percent: 2.0
+      volume-surge-ratio: 1.0
+      take-profit-pct: 10.0
+      stop-buffer-pct: 1.0
+      max-stop-loss-pct: 15.0
+      min-score: 0
+
+    # N日高低点 + 现价位置, 标记豹子号/整数关口
+    n-day-range:
+      enabled: false
+      days: 7
+      min-position-percent: 0
+      max-position-percent: 100
+      only-tagged: false
+
+    # 仓增价不跟: 价稳/升偏多、价跌偏空
+    oi-divergence:
+      enabled: false
+      days: 5
+      min-oi-rise-percent: 15
+      min-oi-up-days: 4
+      min-price-change-percent: -10
+      max-price-change-percent: 10
+
+    altcoin-pump-alert:
+      enabled: false
+      days: 7
+      min-score: 65
+      max-price-decline-percent: 15.0
+      oi-consecutive-days: 3
+      volume-expansion-ratio: 1.5
+      low-price-percentile: 35.0
+      wick-body-ratio: 1.5
+      silent-buyer-ratio: 1.3
+      max-drawdown-percent: 25.0
+
+    reversal-long:
+      enabled: false
+      decline-min-days: 4
+      decline-min-pct: 5.0
+      decline-max-pct: 12.0
+      reversal-min-pct: 1.0
+      reversal-max-pct: 4.0
+      take-profit-pct: 6.0
+      stop-loss-pct: 4.0
+      volume-confirm-ratio: 1.0
+      quality-min-score: 55
+
+    long-short-ratio:
+      enabled: false
+      period: 1h
+      lookback: 12
+      min-score: 60
+      top-position-weight: 40
+      taker-weight: 35
+      divergence-weight: 25
+      taker-bullish-min: 1.0
+
+  # 定时批次 cron (JVM 固定 Asia/Shanghai, 均为北京时间); 批次内无启用分析器时直接跳过
+  schedule:
+    daily-analysis: "0 5 8 * * ?"         # 日线级分析器
+    short-term-analysis: "0 */5 * * * ?"  # 日内批次 (多空比异动)
+
+  # 分析报告 txt 输出目录 (相对 start.sh 所在目录), 启动时清理 30 天前的报告
+  report:
+    dir: ./reports

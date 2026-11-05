@@ -107,6 +107,18 @@ const marketApi = {
         const res = await fetch(`${MARKET_BASE}/flow/${encodeURIComponent(symbol)}?period=${encodeURIComponent(period)}&limit=${limit}`);
         if (!res.ok) throw new Error('flow failed');
         return res.json();
+    },
+    async stage(stage, minMatch, limit) {
+        const qs = new URLSearchParams({ minMatch: minMatch, limit: limit });
+        if (stage) qs.set('stage', stage);
+        const res = await fetch(`${MARKET_BASE}/stage?${qs.toString()}`);
+        if (!res.ok) throw new Error('stage failed');
+        return res.json();
+    },
+    async stageOne(symbol) {
+        const res = await fetch(`${MARKET_BASE}/stage/${encodeURIComponent(symbol)}`);
+        if (!res.ok) throw new Error('stage detail failed');
+        return res.json();
     }
 };
 
@@ -119,6 +131,7 @@ const RATIO_LABELS = {
 };
 const TICKER_TITLES = { gainers: '24h 涨幅榜', losers: '24h 跌幅榜', volume: '24h 成交额榜' };
 const MARKET_ITEMS = [
+    { view: 'market-stage', label: '阶段扫描' },
     { view: 'market-lsr', label: '多空比' },
     { view: 'market-flow', label: '资金流' },
     { view: 'market-gainers', label: '涨幅榜' },
@@ -140,7 +153,11 @@ const state = {
     // 资金流视图参数
     flowSymbol: 'BTCUSDT',
     flowPeriod: '1h',
-    flowLimit: 72
+    flowLimit: 72,
+    // 阶段扫描参数
+    stageFilter: '',
+    stageMinMatch: 0,
+    stageLimit: 200
 };
 
 /* ===== Sidebar ===== */
@@ -193,6 +210,7 @@ function renderCurrentView() {
     switch (state.currentView) {
         case 'detail': renderDetail(state.currentAnalyzer); break;
         case 'market-lsr': renderMarketLsr(); break;
+        case 'market-stage': renderStage(); break;
         case 'market-flow': renderFlow(); break;
         case 'market-gainers': renderTickerBoard('gainers'); break;
         case 'market-losers': renderTickerBoard('losers'); break;
@@ -776,6 +794,131 @@ async function loadFunding() {
     } catch (e) {
         box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
     }
+}
+
+/* ===== Market: 阶段扫描 ===== */
+function renderStage() {
+    const content = document.getElementById('content');
+    const stages = ['', '吸筹', '试盘', '拉升', '派发', '砸盘', '冷却'];
+    content.innerHTML = `
+        <div class="page-title">阶段扫描</div>
+        <div class="detail-section">
+            <div class="market-toolbar">
+                <select id="st-filter" class="toolbar-select">
+                    ${stages.map(s => `<option value="${s}"${state.stageFilter === s ? ' selected' : ''}>${s === '' ? '全部阶段' : s}</option>`).join('')}
+                </select>
+                <label class="toolbar-label">匹配度 ≥</label>
+                <input type="number" id="st-min" class="toolbar-input" value="${state.stageMinMatch}" min="0" max="100" step="5">
+                <button class="btn-primary" id="st-go">扫描</button>
+            </div>
+            <div class="flow-hint">阶段标签是<strong>状态描述</strong>，不是买卖信号——回测显示各阶段后续 7 天收益与基线无显著差异。点某一行看单币详情。</div>
+            <div id="market-result"><div class="loading">加载中...</div></div>
+        </div>`;
+    document.getElementById('st-go').addEventListener('click', () => {
+        state.stageFilter = document.getElementById('st-filter').value;
+        state.stageMinMatch = parseInt(document.getElementById('st-min').value, 10) || 0;
+        loadStage();
+    });
+    loadStage();
+}
+
+async function loadStage() {
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    box.innerHTML = `<div class="loading">扫描全市场…</div>`;
+    try {
+        const rows = await marketApi.stage(state.stageFilter, state.stageMinMatch, state.stageLimit);
+        if (!rows || rows.length === 0) { box.innerHTML = `<div class="empty-state">没有符合条件的币</div>`; return; }
+        const trs = rows.map(r => `<tr class="stage-row" data-symbol="${escHtml(r.symbol)}" style="cursor:pointer">
+            <td><strong>${escHtml(r.symbol)}</strong></td>
+            <td><span class="stage-tag ${stageClass(r.stage)}">${escHtml(r.stage)}</span></td>
+            <td>${r.match}</td>
+            <td>${r.consistent ? '是' : '<span class="negative">冲突</span>'}</td>
+            <td>${pctSpan(r.ret * 100, 1)}</td>
+            <td>${pctSpan(r.excess7 * 100, 1)}</td>
+            <td>${fmtZ(r.volRatioZ)}</td>
+            <td>${fmtZ(r.oiChgZ)}</td>
+            <td>${pctSpan(r.funding * 100, 4)}</td>
+            <td>${pctSpan(r.drawdown * 100, 1)}</td>
+            <td>${r.dataDays}</td>
+        </tr>`).join('');
+        box.innerHTML = `
+            <div class="result-summary">共 ${rows.length} 个币 · 按匹配度降序</div>
+            <div class="result-table-wrap"><table class="result-table">
+                <thead><tr><th>币种</th><th>阶段</th><th>匹配</th><th>一致</th><th>24h</th><th>超额7d</th>
+                <th>量比z</th><th>OI z</th><th>费率</th><th>距高</th><th>天数</th></tr></thead>
+                <tbody>${trs}</tbody></table></div>`;
+        box.querySelectorAll('.stage-row').forEach(tr =>
+            tr.addEventListener('click', () => loadStageDetail(tr.dataset.symbol)));
+    } catch (e) {
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
+    }
+}
+
+async function loadStageDetail(symbol) {
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    box.innerHTML = `<div class="loading">加载 ${escHtml(symbol)} 详情…</div>`;
+    try {
+        const d = await marketApi.stageOne(symbol);
+        const r = d.row;
+        const ev = (d.evidence && d.evidence.length)
+            ? d.evidence.map(e => `<li>${escHtml(e)}</li>`).join('')
+            : '<li>无明显异常项</li>';
+        box.innerHTML = `
+            <div class="result-summary">
+                <button class="btn-small" id="st-back">← 返回列表</button>
+                &nbsp; <strong>${escHtml(r.symbol)}</strong>
+                <span class="stage-tag ${stageClass(r.stage)}">${escHtml(r.stage)}</span>
+                匹配度 ${r.match}/100 ${r.consistent ? '' : '<span class="negative">（多周期冲突）</span>'}
+            </div>
+            <div class="stage-detail">
+                <div class="stage-kv">
+                    <div><span>收盘</span><b>${fmtNum(r.close)}</b></div>
+                    <div><span>24h</span><b>${pctSpan(r.ret * 100, 1)}</b></div>
+                    <div><span>7d</span><b>${pctSpan(r.ret7 * 100, 1)}</b></div>
+                    <div><span>相对 BTC</span><b>${pctSpan(r.excess7 * 100, 1)}</b></div>
+                    <div><span>距 30d 高点</span><b>${pctSpan(r.drawdown * 100, 1)}</b></div>
+                    <div><span>OI 距峰</span><b>${pctSpan(r.oiFromPeak * 100, 1)}</b></div>
+                    <div><span>费率</span><b>${pctSpan(r.funding * 100, 4)}</b></div>
+                    <div><span>大户比</span><b>${fmtNum(r.topPos)}</b></div>
+                </div>
+                <div class="stage-spark">${sparkline(d.closes)}</div>
+                <div class="stage-why">
+                    <div><b>证据</b><ul>${ev}</ul></div>
+                    <div><b>证伪条件</b><p>${escHtml(d.falsify)}</p></div>
+                </div>
+            </div>`;
+        document.getElementById('st-back').addEventListener('click', loadStage);
+    } catch (e) {
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
+    }
+}
+
+function stageClass(stage) {
+    return { '拉升': 'up', '吸筹': 'acc', '试盘': 'test', '派发': 'dist', '砸盘': 'down' }[stage] || 'idle';
+}
+
+/** z-score 显示：正负号 + 两位小数。 */
+function fmtZ(v) {
+    if (v == null || isNaN(v)) return '--';
+    const cls = v > 0 ? 'positive' : v < 0 ? 'negative' : 'neutral';
+    return `<span class="${cls}">${v > 0 ? '+' : ''}${v.toFixed(2)}</span>`;
+}
+
+/** 近 90 天收盘价迷你折线。 */
+function sparkline(points) {
+    if (!points || points.length < 2) return '';
+    const W = 900, H = 120, pad = 6;
+    const ys = points.map(p => p[1]);
+    const lo = Math.min(...ys), hi = Math.max(...ys);
+    const xAt = i => pad + (W - pad * 2) * i / (points.length - 1);
+    const yAt = v => H - pad - (hi === lo ? (H - pad * 2) / 2 : (v - lo) / (hi - lo) * (H - pad * 2));
+    let path = '';
+    points.forEach((p, i) => { path += (i === 0 ? 'M' : 'L') + xAt(i).toFixed(1) + ',' + yAt(p[1]).toFixed(1) + ' '; });
+    const up = ys[ys.length - 1] >= ys[0];
+    return `<svg viewBox="0 0 ${W} ${H}" class="spark"><path d="${path}" fill="none"
+        stroke="${up ? '#52c41a' : '#ff4d4f'}" stroke-width="2"/></svg>`;
 }
 
 /* ===== Market: 资金流 (价格 / 主动买占比 / OI) ===== */

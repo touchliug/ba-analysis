@@ -118,13 +118,39 @@ public class StageService {
         double drawdown = hi30 > 0 ? today.close() / hi30 - 1 : 0;
         double oiFromPeak = (oiPeak > 0 && !Double.isNaN(today.oi())) ? today.oi() / oiPeak - 1 : Double.NaN;
 
-        return new Feat(ret, ret7, z(d, i, x -> x.close()), zRatio(d, i),
+        return new Feat(ret, ret7, zRet(d, i), zRatio(d, i),
                 z(d, i, x -> x.low() > 0 ? (x.high() - x.low()) / x.low() : 0),
                 zOi(d, i), z(d, i, x -> x.funding()),
                 drawdown, oiFromPeak, today.funding(), today.topPos(), today.retail(), ret7 - btc[1]);
     }
 
     private interface Fn { double get(Day d); }
+
+    /**
+     * 日收益的 z-score：今天的涨跌幅相对过去 90 天日收益分布的偏离。
+     *
+     * <p>注意不能用 {@code z(d, i, x -> x.close())} —— 那是「价格水平」的 z，
+     * 对一枚从 0.59 跌到 0.23 再反弹的币，价格 z 只有 0.2，单日 +24% 的信息会被完全丢掉，
+     * 而分类规则（日涨幅 z&gt;1.5 判拉升）要的恰恰是收益 z。
+     */
+    private static double zRet(List<Day> d, int i) {
+        int from = Math.max(1, i - Z_WINDOW);
+        double sum = 0, sq = 0;
+        int c = 0;
+        for (int j = from; j < i; j++) {
+            double prev = d.get(j - 1).close();
+            if (prev <= 0 || d.get(j).close() <= 0) continue;
+            double r = d.get(j).close() / prev - 1;
+            sum += r; sq += r * r; c++;
+        }
+        if (c < 20) return 0;
+        double mean = sum / c;
+        double var = sq / c - mean * mean;
+        if (var <= 0) return 0;
+        double prev = d.get(i - 1).close();
+        if (prev <= 0) return 0;
+        return (d.get(i).close() / prev - 1 - mean) / Math.sqrt(var);
+    }
 
     private static double z(List<Day> d, int i, Fn fn) {
         int from = Math.max(0, i - Z_WINDOW);

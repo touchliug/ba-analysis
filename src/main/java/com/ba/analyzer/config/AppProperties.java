@@ -193,7 +193,7 @@ public class AppProperties {
 
     @Data
     public static class LongShortRatioConfig {
-        private boolean enabled = true;     // 默认启用, 随 short-term 批次每5分钟跑
+        private boolean enabled = false;    // 默认关闭, 开关由 application.yml 控制
         private String period = "1h";       // LSR 统计周期 (库内默认 1h)
         private int lookback = 12;           // 与多少根之前比较 (变化率/背离)
         private int minScore = 60;           // 低于此分不输出

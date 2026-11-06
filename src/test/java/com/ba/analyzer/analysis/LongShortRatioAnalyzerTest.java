@@ -110,7 +110,11 @@ class LongShortRatioAnalyzerTest {
 
     @Test
     void isEnabledReadsConfig() {
+        assertFalse(analyzer.isEnabled(), "shipped default is disabled");
+
+        appProperties.getAnalysis().getLongShortRatio().setEnabled(true);
         assertTrue(analyzer.isEnabled());
+
         assertTrue(analyzer.requiresIntradayData());
         assertEquals("多空比异动", analyzer.getName());
     }

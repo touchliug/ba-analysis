@@ -21,9 +21,10 @@
 
 - 日线类分析器只用**已收盘**日 K(`AbstractKlineAnalyzer.closedCandlesOnly`),最新已收盘根超过 1 天的币视为同步滞后跳过;
   首阴日/反转做多需要当日开盘价作入场价,自行处理
-- 行情查询接口 `MarketController`(多空比/涨跌幅/成交额/资金费率排行)
+- 行情查询接口 `MarketController`(多空比/涨跌幅/成交额/资金费率排行/阶段识别/选币/资金流)
 - 分析接口 `AnalysisController`、报告输出 `ReportWriter`
-- 币种全集从库推导:`symbols` 表为主、`klines` 去重兜底(同步服务写了哪些币就分析哪些)
+- 币种全集从库推导:`symbols` 表为主、`klines` 去重兜底(同步服务写了哪些币就分析哪些);每次手动/定时分析前都会重新读取
+- 健康检查 `/api/health` 会实际查询数据库,MySQL 不可用时返回 503
 
 > 5m 日内链路(短期急涨/综合评分/MarketFeatureService)已移除:ba-sync 不同步 5m 数据,
 > 该链路只能产出空报告。若将来需要,先在 ba-sync 补 5m K线/OI 同步再恢复。
@@ -37,7 +38,7 @@
 | 任务 | cron | 说明 |
 |---|---|---|
 | daily-analysis | `0 5 8 * * ?` | 每日运行日线级分析器(有启用的才跑) |
-| short-term-analysis | `0 */5 * * * ?` | 每 5 分钟运行日内批次(现仅多空比异动;有启用的才跑) |
+| short-term-analysis | `0 */5 * * * ?` | 每 5 分钟运行日内批次(现仅多空比异动, 默认关闭;有启用的才跑) |
 
 ## 运行
 ```bash

@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * 分析功能Web API控制器
  * 提供以下REST接口 (enabled 配置只控制定时批次, 手动触发不受限)：
  * - GET  /api/analysis/list          列出所有分析器名称
- * - GET  /api/analysis/run/{name}    异步执行指定分析器，立即返回任务状态
+ * - POST /api/analysis/run/{name}    异步执行指定分析器，立即返回任务状态
  * - POST /api/analysis/sync/{name}   同步执行指定分析器，支持query参数和JSON body两种传参方式
  * - GET  /api/analysis/latest        获取所有分析器的最新分析结果
  * - GET  /api/analysis/latest/{name} 获取指定分析器的最新分析结果
@@ -48,7 +48,7 @@ public class AnalysisController {
         return ResponseEntity.ok(names);
     }
 
-    @GetMapping("/run/{name}")
+    @PostMapping("/run/{name}")
     public ResponseEntity<Map<String, Object>> runAnalysis(@PathVariable String name) {
         Analyzer analyzer = analyzers.stream()
                 .filter(a -> a.getName().equals(name))

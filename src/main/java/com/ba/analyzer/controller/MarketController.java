@@ -175,7 +175,7 @@ public class MarketController {
     /**
      * 按筛选器选币。type 见 {@link ScreenerService#DEFS}。
      *
-     * <p>所有筛选器共用一套指标（日线 180 天），只做过滤 + 排序，不是买卖信号。
+     * <p>所有筛选器共用一套指标（日线 120 天），只做过滤 + 排序，不是买卖信号。
      */
     @GetMapping(value = "/screen", produces = "application/json;charset=UTF-8")
     public ResponseEntity<List<ScreenerService.Row>> screen(

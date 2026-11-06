@@ -255,10 +255,13 @@ public class StageService {
 
     private record CachedSeries(long at, Map<String, List<Day>> data) {}
 
-    /** 一次加载 522 币 × 180 天要几十秒，页面每切一次都要读，故做 60 秒缓存。 */
+    /** 一次加载全市场 × 120 天要几十秒，页面每切一次都要读，故做 60 秒缓存。 */
     private volatile CachedSeries seriesCache;
 
     private static final long SERIES_TTL_MS = 60_000L;
+
+    /** 冷加载单飞: 过期瞬间只允许一个线程查库, 其余线程等待并复用结果。 */
+    private final Object seriesLock = new Object();
 
     /** 启动后异步预热：冷加载约 20s，预热后第一个用户请求就是热的。 */
     @jakarta.annotation.PostConstruct
@@ -281,11 +284,18 @@ public class StageService {
         long now = System.currentTimeMillis();
         if (c != null && now - c.at() < SERIES_TTL_MS) return c.data();
 
-        Map<String, List<Day>> loaded = loadFromDb();
-        // 用加载完成后的时间戳: loadFromDb 要几十秒, 用调用前的时间会让缓存一写入就过期
-        seriesCache = new CachedSeries(System.currentTimeMillis(), loaded);
-        log.info("stage series cache refreshed: {} symbols", loaded.size());
-        return loaded;
+        synchronized (seriesLock) {
+            // 双重检查: 等锁期间可能已有其他线程完成加载
+            c = seriesCache;
+            now = System.currentTimeMillis();
+            if (c != null && now - c.at() < SERIES_TTL_MS) return c.data();
+
+            Map<String, List<Day>> loaded = loadFromDb();
+            // 用加载完成后的时间戳: loadFromDb 要几十秒, 用调用前的时间会让缓存一写入就过期
+            seriesCache = new CachedSeries(System.currentTimeMillis(), loaded);
+            log.info("stage series cache refreshed: {} symbols", loaded.size());
+            return loaded;
+        }
     }
 
     private Map<String, List<Day>> loadFromDb() {

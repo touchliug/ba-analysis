@@ -54,6 +54,13 @@ public interface Analyzer {
         return p;
     }
 
+    /** 下拉框参数: 前端根据 type=select 和 options 渲染 <select>。 */
+    static Map<String, Object> selectParam(String description, Object defaultValue, List<String> options) {
+        Map<String, Object> p = param("select", description, defaultValue);
+        p.put("options", options);
+        return p;
+    }
+
     default int getIntParam(Map<String, Object> params, String key, int defaultValue) {
         if (params == null || !params.containsKey(key)) return defaultValue;
         Object val = params.get(key);

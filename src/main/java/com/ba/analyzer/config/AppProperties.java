@@ -36,6 +36,9 @@ public class AppProperties {
         private AltcoinPumpAlertConfig altcoinPumpAlert = new AltcoinPumpAlertConfig();
         private ReversalLongConfig reversalLong = new ReversalLongConfig();
         private LongShortRatioConfig longShortRatio = new LongShortRatioConfig();
+        private StreakConfig priceRiseStreak = new StreakConfig();
+        private StreakConfig priceFallStreak = new StreakConfig();
+        private StreakConfig oiRiseStreak = new StreakConfig();
     }
 
     /** 连续上涨 = 首阴日候选池 (已合并原"缓涨币"): 连涨中的强势币, 收阴即可能触发首阴日做空。 */
@@ -193,7 +196,7 @@ public class AppProperties {
 
     @Data
     public static class LongShortRatioConfig {
-        private boolean enabled = true;     // 默认启用, 随 short-term 批次每5分钟跑
+        private boolean enabled = false;    // 默认关闭, 开关由 application.yml 控制
         private String period = "1h";       // LSR 统计周期 (库内默认 1h)
         private int lookback = 12;           // 与多少根之前比较 (变化率/背离)
         private int minScore = 60;           // 低于此分不输出
@@ -202,6 +205,14 @@ public class AppProperties {
         private int takerWeight = 35;        // taker 主动买盘占优
         private int divergenceWeight = 25;   // 大户进 + 散户退 背离
         private double takerBullishMin = 1.0; // taker 买卖比超过此值算买盘占优
+    }
+
+    /** 连续扫描通用配置: 周期(1d/1h) + 连续根数。 */
+    @Data
+    public static class StreakConfig {
+        private boolean enabled = false;
+        private String interval = "1d";
+        private int periods = 5;
     }
 
     @Data

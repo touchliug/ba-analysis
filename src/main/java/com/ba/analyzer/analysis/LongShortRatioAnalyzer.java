@@ -19,7 +19,7 @@ import java.util.Map;
  *
  * 信号 = 大户持仓多空比(TOP_POSITION)抬升 + taker主动买盘占优(TAKER>阈值)
  *        + 与散户账户多空比(GLOBAL_ACCOUNT)背离(大户进、散户退)。
- * 默认启用, requiresIntradayData=true, 随 short-term 批次每5分钟运行。
+ * 默认关闭(由配置开启), requiresIntradayData=true, 随 short-term 批次每5分钟运行。
  * LSR 数据缺失时优雅跳过对应 symbol, 不报错。
  */
 @Slf4j

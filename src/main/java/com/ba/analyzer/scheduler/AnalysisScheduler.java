@@ -70,7 +70,7 @@ public class AnalysisScheduler {
             return;
         }
         log.info("=== Scheduled: Running {} analysis ({} analyzers) ===", batchName, enabled.size());
-        List<String> symbols = refreshSymbols();
+        List<String> symbols = getSymbols();
         for (Analyzer analyzer : enabled) {
             try {
                 log.info("Running analyzer: {}", analyzer.getName());
@@ -110,15 +110,13 @@ public class AnalysisScheduler {
         return latestReports;
     }
 
-    /** 每轮分析前从MySQL重新拉取币种全集(同步服务可能新增/下架了合约)。 */
-    private List<String> refreshSymbols() {
+    /**
+     * 每次分析前从MySQL重新拉取币种全集(同步服务可能新增/下架了合约)。
+     * 读不到时保留上一次的非空结果, 避免同步服务短暂异常把分析范围清空。
+     */
+    private List<String> getSymbols() {
         List<String> symbols = symbolService.getSymbolNames();
         if (!symbols.isEmpty()) cachedSymbols = symbols;
-        return cachedSymbols;
-    }
-
-    private List<String> getSymbols() {
-        if (cachedSymbols.isEmpty()) cachedSymbols = symbolService.getSymbolNames();
         return cachedSymbols;
     }
 }

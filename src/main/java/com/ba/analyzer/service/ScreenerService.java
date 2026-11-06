@@ -15,7 +15,7 @@ import java.util.Map;
  * <p>数据只加载一次（复用 {@link StageService#load()}），六种筛选器共用同一份指标，
  * 每种只做「过滤 + 排序」，因此加一个新筛选器的成本很低。
  *
- * <p>所有指标都基于日线（180 天），并且尽量用**相对自身历史的分位/z-score**，
+ * <p>所有指标都基于日线（120 天），并且尽量用**相对自身历史的分位/z-score**，
  * 避免"量比 1.5"这种对大盘股和小盘股意义不同的绝对值。
  */
 @Slf4j
@@ -31,12 +31,12 @@ public class ScreenerService {
     public record Def(String type, String title, String desc) {}
 
     public static final List<Def> DEFS = List.of(
-            new Def("anomaly", "放量异动", "量能异常放大且价格有明显变动，先看发生了什么"),
-            new Def("oi", "持仓异动", "OI 单日变化超过 5%，配合价格方向判断是新多/新空还是平仓"),
+            new Def("anomaly", "放量异动", "量比 z-score > 0.8 且单日涨跌幅 > 1.5%，先看发生了什么"),
+            new Def("oi", "持仓异动", "OI 单日变化超过 8%，配合价格方向判断是新多/新空还是平仓"),
             new Def("crowded", "费率极值", "资金费率年化 > 50%，多头拥挤、持仓成本高"),
-            new Def("divergence", "多空背离", "大户持仓比与散户账户比差值大，典型的「人少钱多 vs 人多钱少」"),
-            new Def("squeeze", "缩量横盘", "量比 < 0.6 + 20 日振幅 < 15%，可能是吸筹阶段"),
-            new Def("breakout", "逼近新高", "距 20 日高点 3% 以内 + 量能放大 + OI 一周净增")
+            new Def("divergence", "多空背离", "大户持仓比与散户账户比差值 > 0.8，典型的「人少钱多 vs 人多钱少」"),
+            new Def("squeeze", "缩量横盘", "量比 < 0.6 + 20 日振幅 < 15% + 7 日涨跌幅绝对值 < 5%，可能是吸筹阶段"),
+            new Def("breakout", "逼近新高", "距 20 日高点 8% 以内 + 量比 > 1.0 + OI 一周变化 > -5%")
     );
 
     /** 单币指标。 */
@@ -51,10 +51,13 @@ public class ScreenerService {
 
     private record Cached(long at, List<Row> rows) {}
 
-    /** 缓存 60 秒：一次加载 522 币 × 180 天要几十秒，六个筛选器必须共用同一份结果。 */
+    /** 缓存 60 秒：一次加载全市场 × 120 天要几十秒，六个筛选器必须共用同一份结果。 */
     private volatile Cached cache;
 
     private static final long CACHE_TTL_MS = 60_000L;
+
+    /** 冷加载单飞: 过期瞬间只允许一个线程构建指标, 其余线程等待并复用结果。 */
+    private final Object cacheLock = new Object();
 
     /** 全市场指标（带 TTL 缓存）。 */
     private List<Row> cache() {
@@ -62,15 +65,22 @@ public class ScreenerService {
         long now = System.currentTimeMillis();
         if (c != null && now - c.at() < CACHE_TTL_MS) return c.rows();
 
-        Map<String, List<StageService.Day>> series = stageService.load();
-        List<Row> rows = new ArrayList<>();
-        for (var e : series.entrySet()) {
-            Row r = metrics(e.getKey(), e.getValue());
-            if (r != null) rows.add(r);
+        synchronized (cacheLock) {
+            // 双重检查: 等锁期间可能已有其他线程完成构建
+            c = cache;
+            now = System.currentTimeMillis();
+            if (c != null && now - c.at() < CACHE_TTL_MS) return c.rows();
+
+            Map<String, List<StageService.Day>> series = stageService.load();
+            List<Row> rows = new ArrayList<>();
+            for (var e : series.entrySet()) {
+                Row r = metrics(e.getKey(), e.getValue());
+                if (r != null) rows.add(r);
+            }
+            cache = new Cached(System.currentTimeMillis(), rows);
+            log.info("screener cache refreshed: {} symbols", rows.size());
+            return rows;
         }
-        cache = new Cached(System.currentTimeMillis(), rows);
-        log.info("screener cache refreshed: {} symbols", rows.size());
-        return rows;
     }
 
     public List<Row> screen(String type, int limit) {

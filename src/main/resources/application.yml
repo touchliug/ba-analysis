@@ -137,6 +137,23 @@ binance:
       divergence-weight: 25
       taker-bullish-min: 1.0
 
+    # 连续扫描: interval=1d/1h, periods=连续根数
+    price-rise-streak:
+      enabled: false
+      interval: 1d
+      periods: 5
+
+    price-fall-streak:
+      enabled: false
+      interval: 1d
+      periods: 5
+
+    # OI 连续上涨, 使用 sum_open_interest(币本位数量)
+    oi-rise-streak:
+      enabled: false
+      interval: 1d
+      periods: 5
+
   schedule:
     # JVM 固定 Asia/Shanghai 运行 (见 AnalysisApplication)。以下 cron 均为北京时间。
     daily-analysis: "0 5 8 * * ?"

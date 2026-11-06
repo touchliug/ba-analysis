@@ -16,17 +16,20 @@ import java.util.Map;
 @Component
 public class ReportWriter {
 
-    private static final Map<String, String> NAME_MAPPING = Map.of(
-            "连续上涨", "consecutive_rise",
-            "大幅上涨", "high_rise",
-            "低位插针", "low_price_consolidation",
-            "底部吸筹", "bullish_accumulation",
-            "首阴日", "first_yin_day",
-            "N日区间", "n_day_range",
-            "持仓背离", "oi_divergence",
-            "山寨币暴涨预警", "altcoin_pump_alert",
-            "反转做多", "reversal_long",
-            "多空比异动", "long_short_ratio"
+    private static final Map<String, String> NAME_MAPPING = Map.ofEntries(
+            Map.entry("连续上涨", "consecutive_rise"),
+            Map.entry("大幅上涨", "high_rise"),
+            Map.entry("低位插针", "low_price_consolidation"),
+            Map.entry("底部吸筹", "bullish_accumulation"),
+            Map.entry("首阴日", "first_yin_day"),
+            Map.entry("N日区间", "n_day_range"),
+            Map.entry("持仓背离", "oi_divergence"),
+            Map.entry("山寨币暴涨预警", "altcoin_pump_alert"),
+            Map.entry("反转做多", "reversal_long"),
+            Map.entry("多空比异动", "long_short_ratio"),
+            Map.entry("价格连续上涨", "price_rise_streak"),
+            Map.entry("价格连续下跌", "price_fall_streak"),
+            Map.entry("OI连续上涨", "oi_rise_streak")
     );
 
     private static final int MAX_REPORT_KEEP_DAYS = 30;

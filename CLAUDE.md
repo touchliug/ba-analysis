@@ -35,6 +35,7 @@ Data flows in one direction: **MySQL → JdbcDataStore → DataFetchService → 
 - **`JdbcDataStore`** is the read-only data access layer (klines, open_interest, funding_rate, long_short_ratio, ticker_24h, premium_index, symbols). No writes, no DDL.
 - **`DataFetchService`** wraps `JdbcDataStore` with batch reads and a 60-second kline cache shared by analyzers in one batch. When fewer than 90% of requested symbols return data it logs a warn ("sync service may be behind") but still returns what it has.
 - **`Analyzer`** interface + **`AbstractKlineAnalyzer`** base. Each analyzer is a Spring `@Component`, so Spring injects all of them as a `List<Analyzer>` into the scheduler and controller. To add an analyzer, implement the interface (usually extend `AbstractKlineAnalyzer`) and annotate `@Component` — no registration needed.
+- **`AbstractStreakAnalyzer`** backs the three consecutive-scan analyzers (`价格连续上涨` / `价格连续下跌` / `OI连续上涨`). They take `interval` (`1d`/`1h`) and `periods` (default 5), use closed candles only, and tolerate 1 day of lag for daily K lines / 2 hours for hourly data. Daily OI gets 2 days because `ba-sync` writes it at 08:10 while daily-analysis starts at 08:05. OI streaks use `sum_open_interest` (coin quantity), not `sum_open_interest_value` (USDT notional).
 - **`StageService`** computes the market stage (吸筹/试盘/拉升/派发/砸盘/冷却) from 120 days of daily data, OI, funding and long/short ratio, with a 60-second cache. **`ScreenerService`** reuses that series for six screeners (放量异动/持仓异动/费率极值/多空背离/缩量横盘/逼近新高). Both caches are single-flight: a cold/expired cache is loaded by one thread while concurrent requests wait and reuse the result. Stage labels are descriptive only — backtests found no predictive edge; do not present them as buy/sell signals.
 
 ### Scheduled batches (default: all disabled)
@@ -42,11 +43,11 @@ Data flows in one direction: **MySQL → JdbcDataStore → DataFetchService → 
 `AnalysisScheduler` runs analyzers in two cron batches, split by `Analyzer.requiresIntradayData()`:
 
 - **daily-analysis** (`0 5 8 * * ?`, 08:05 Beijing): analyzers where `requiresIntradayData() == false` (daily-kline based).
-- **short-term-analysis** (`0 */5 * * * ?`, every 5 min): analyzers where `requiresIntradayData() == true`. Currently only `多空比异动` (`LongShortRatioAnalyzer`), which reads 1h long/short ratio data. It is disabled by default, like every analyzer in the shipped config.
+- **short-term-analysis** (`0 */5 * * * ?`, every 5 min): analyzers where `requiresIntradayData() == true`. This includes `多空比异动` (`LongShortRatioAnalyzer`) and any streak analyzer configured with `interval=1h`. All are disabled by default, like every analyzer in the shipped config.
 
 Every analyzer's `enabled` flag defaults to `false`; scheduled batches skip entirely when nothing is enabled. Manual API runs are still allowed for disabled analyzers.
 
-When adding an analyzer, set `requiresIntradayData()` correctly or it will run in the wrong batch (or never, if its data interval isn't synced at that cadence). `AbstractKlineAnalyzer` derives the required history from the `days` param plus `history-buffer-days`; analyzers keyed on other params (e.g. `ReversalLongAnalyzer`) must override `fetchData()`.
+When adding an analyzer, set `requiresIntradayData()` correctly or it will run in the wrong batch (or never, if its data interval isn't synced at that cadence). `AbstractKlineAnalyzer` derives the required history from the `days` param plus `history-buffer-days`; analyzers keyed on other params (e.g. `ReversalLongAnalyzer`) must override `fetchData()`. `AbstractStreakAnalyzer.requiresIntradayData()` follows the configured `interval`, so a streak analyzer only moves to the 5-minute batch when its config is `1h`.
 
 ### Timezone
 
@@ -80,7 +81,7 @@ Everything analyzer-related is in `application.yml` under `binance.analysis.*`, 
 
 **Param key casing gotcha:** `application.yml` keys are kebab-case (`threshold-percent`, `min-oi-rise-percent`), but the API override keys in `getParamSpec()` are camelCase (`thresholdPercent`, `minOiRisePercent`). When overriding via the API, use the camelCase form. `mergeParams()` coerces query-string values to Integer/Double (a value containing `.` becomes Double), so pass numbers as numbers; JSON body values keep their JSON type.
 
-Analyzer names are **Chinese strings** (`getName()`, e.g. `首阴日`, `多空比异动`) and are used as cache keys, API path params, and report filenames. `ReportWriter.NAME_MAPPING` maps all 10 to ASCII filenames; unmapped names get a regex-sanitized fallback.
+Analyzer names are **Chinese strings** (`getName()`, e.g. `首阴日`, `多空比异动`) and are used as cache keys, API path params, and report filenames. `ReportWriter.NAME_MAPPING` maps all 13 to ASCII filenames; unmapped names get a regex-sanitized fallback. Param specs can use type `select` with `options`; the page renders those as dropdowns.
 
 ## Reports
 

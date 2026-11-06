@@ -393,6 +393,22 @@ async function renderDetail(name) {
     let paramsHtml = '';
     if (paramSpec && paramSpec.params) {
         for (const [key, spec] of Object.entries(paramSpec.params)) {
+            if (spec.type === 'select' && Array.isArray(spec.options)) {
+                const options = spec.options.map(o => {
+                    const value = String(o);
+                    const selected = value === String(spec.default ?? '') ? ' selected' : '';
+                    return `<option value="${escHtml(value)}"${selected}>${escHtml(value)}</option>`;
+                }).join('');
+                paramsHtml += `
+                <div class="form-group">
+                    <label for="param-${escHtml(key)}">${escHtml(key)}</label>
+                    <select id="param-${escHtml(key)}" data-key="${escHtml(key)}" data-type="select">
+                        ${options}
+                    </select>
+                    <span class="form-hint">${escHtml(spec.description || '')}</span>
+                </div>`;
+                continue;
+            }
             const inputType = (spec.type === 'int' || spec.type === 'integer' || spec.type === 'double' || spec.type === 'float' || spec.type === 'number') ? 'number' : 'text';
             const step = (spec.type === 'double' || spec.type === 'float') ? 'step="any"' : '';
             paramsHtml += `
@@ -444,6 +460,7 @@ function renderResultTable(report) {
     const hasTradePlan = isReversal || isFirstYin;
     const isNDayLow = report.analysisType === 'N日区间';
     const isOiDivergence = report.analysisType === '持仓背离';
+    const isOiStreak = report.analysisType === 'OI连续上涨';
     // N日区间: 服务端已按"带标记优先 + 贴近低点优先"排好, 不再按涨跌幅重排
     const sorted = isNDayLow ? [...report.coins] : [...report.coins].sort((a, b) => {
         if (hasScore) return (b.score || 0) - (a.score || 0);
@@ -523,6 +540,7 @@ function renderResultTable(report) {
         : isFirstYin ? '<th>首阴跌幅</th>'
         : isNDayLow ? '<th>区间位置</th>'
         : isOiDivergence ? '<th>持仓变化</th>'
+        : isOiStreak ? '<th>OI变化</th>'
         : '<th>涨跌幅</th>';
     const nDayHeaders = isNDayLow ? '<th>N日最低</th><th>最低日期</th>' : '';
 
@@ -561,7 +579,7 @@ function bindDetailEvents(name, paramSpec) {
             errDiv.innerHTML = '';
             const params = {};
             if (paramSpec && paramSpec.params) {
-                document.querySelectorAll('#param-form input[data-key]').forEach(input => {
+                document.querySelectorAll('#param-form [data-key]').forEach(input => {
                     const key = input.dataset.key;
                     const type = input.dataset.type;
                     const val = input.value.trim();
@@ -606,7 +624,7 @@ function bindDetailEvents(name, paramSpec) {
 
     if (btnReset && paramSpec && paramSpec.params) {
         btnReset.addEventListener('click', () => {
-            document.querySelectorAll('#param-form input[data-key]').forEach(input => {
+            document.querySelectorAll('#param-form [data-key]').forEach(input => {
                 const key = input.dataset.key;
                 const spec = paramSpec.params[key];
                 if (spec) input.value = String(spec.default ?? '');

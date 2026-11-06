@@ -5,6 +5,7 @@ import com.ba.analyzer.model.LongShortRatioData;
 import com.ba.analyzer.model.OpenInterestData;
 import com.ba.analyzer.model.PremiumIndexData;
 import com.ba.analyzer.model.Ticker24hData;
+import com.ba.analyzer.service.AlertService;
 import com.ba.analyzer.service.JdbcDataStore;
 import com.ba.analyzer.service.ScreenerService;
 import com.ba.analyzer.service.StageService;
@@ -40,6 +41,7 @@ public class MarketController {
     private final JdbcDataStore store;
     private final StageService stageService;
     private final ScreenerService screenerService;
+    private final AlertService alertService;
 
     private static int clampLimit(int limit) {
         return Math.min(Math.max(limit, 1), MAX_LIMIT);
@@ -164,6 +166,19 @@ public class MarketController {
         return d == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(d);
     }
 
+    // ---- 异动预警 ----
+
+    /**
+     * 盘中异动扫描：放量拉升 / 放量下杀 / 单纯放量 / OI 突变。
+     *
+     * <p>实时计算，不落表；扫描窗口 26 小时，全市场约 2.5 万行，单次 &lt;1 秒。
+     */
+    @GetMapping(value = "/alerts", produces = "application/json;charset=UTF-8")
+    public ResponseEntity<List<AlertService.Alert>> alerts(
+            @RequestParam(defaultValue = "6") int hours) {
+        return ResponseEntity.ok(alertService.scan(hours));
+    }
+
     // ---- 选币筛选 ----
 
     /** 可用筛选器列表（页面用于渲染标签页）。 */
@@ -175,7 +190,7 @@ public class MarketController {
     /**
      * 按筛选器选币。type 见 {@link ScreenerService#DEFS}。
      *
-     * <p>所有筛选器共用一套指标（日线 180 天），只做过滤 + 排序，不是买卖信号。
+     * <p>所有筛选器共用一套指标（日线 120 天），只做过滤 + 排序，不是买卖信号。
      */
     @GetMapping(value = "/screen", produces = "application/json;charset=UTF-8")
     public ResponseEntity<List<ScreenerService.Row>> screen(

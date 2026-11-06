@@ -129,6 +129,11 @@ const marketApi = {
         const res = await fetch(`${MARKET_BASE}/screen?type=${encodeURIComponent(type)}&limit=${limit}`);
         if (!res.ok) throw new Error('screen failed');
         return res.json();
+    },
+    async alerts(hours) {
+        const res = await fetch(`${MARKET_BASE}/alerts?hours=${hours || 6}`);
+        if (!res.ok) throw new Error('alerts failed');
+        return res.json();
     }
 };
 
@@ -141,6 +146,7 @@ const RATIO_LABELS = {
 };
 const TICKER_TITLES = { gainers: '24h 涨幅榜', losers: '24h 跌幅榜', volume: '24h 成交额榜' };
 const MARKET_ITEMS = [
+    { view: 'market-alert', label: '异动预警' },
     { view: 'market-screen', label: '选币' },
     { view: 'market-stage', label: '阶段扫描' },
     { view: 'market-lsr', label: '多空比' },
@@ -171,7 +177,10 @@ const state = {
     stageLimit: 200,
     // 选币参数
     screenType: 'anomaly',
-    screenLimit: 50
+    screenLimit: 50,
+    // 预警
+    alertHours: 12,
+    alertTimer: null
 };
 
 /* ===== Sidebar ===== */
@@ -221,11 +230,13 @@ function renderSidebar() {
 
 /* ===== View Router ===== */
 function renderCurrentView() {
+    if (state.alertTimer) { clearTimeout(state.alertTimer); state.alertTimer = null; }
     switch (state.currentView) {
         case 'detail': renderDetail(state.currentAnalyzer); break;
         case 'market-lsr': renderMarketLsr(); break;
         case 'market-stage': renderStage(); break;
         case 'market-screen': renderScreen(); break;
+        case 'market-alert': renderAlert(); break;
         case 'market-flow': renderFlow(); break;
         case 'market-gainers': renderTickerBoard('gainers'); break;
         case 'market-losers': renderTickerBoard('losers'); break;
@@ -809,6 +820,93 @@ async function loadFunding() {
     } catch (e) {
         box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
     }
+}
+
+/* ===== Market: 异动预警 ===== */
+const ALERT_TYPES = {
+    PUMP: { label: '放量拉升', cls: 'pump' },
+    DUMP: { label: '放量下杀', cls: 'dump' },
+    VOL: { label: '单纯放量', cls: 'vol' },
+    OI: { label: '持仓突变', cls: 'oi' }
+};
+
+function renderAlert() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        <div class="page-title">异动预警</div>
+        <div class="detail-section">
+            <div class="flow-hint">
+                扫描窗口 26 小时，用<strong>已收盘的小时线</strong>判断（避免半根量误判）。每 60 秒自动刷新。
+                规则：拉升/下杀 = 1h 涨跌 ≥8% 且 量比 ≥5；单纯放量 = 量比 ≥10；持仓突变 = OI 1h 变化 ≥15%。
+                24h 成交额低于 300 万的币不参与（避免小盘噪声）。
+            </div>
+            <div class="market-toolbar" style="margin-top:10px">
+                <label class="toolbar-label">回溯</label>
+                <select id="al-hours" class="toolbar-select">
+                    <option value="6">近 6 小时</option>
+                    <option value="12">近 12 小时</option>
+                    <option value="24">近 24 小时</option>
+                </select>
+                <button class="btn-primary" id="al-go">立即刷新</button>
+            </div>
+            <div id="market-result"><div class="loading">扫描中…</div></div>
+        </div>`;
+    const sel = document.getElementById('al-hours');
+    sel.value = String(state.alertHours);
+    sel.addEventListener('change', () => {
+        state.alertHours = parseInt(sel.value, 10) || 12;
+        loadAlerts();
+    });
+    document.getElementById('al-go').addEventListener('click', loadAlerts);
+    loadAlerts();
+}
+
+async function loadAlerts() {
+    if (state.currentView !== 'market-alert') return;
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    if (state.alertTimer) { clearTimeout(state.alertTimer); state.alertTimer = null; }
+
+    try {
+        const rows = await marketApi.alerts(state.alertHours);
+        const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        if (!rows || rows.length === 0) {
+            box.innerHTML = `<div class="result-summary">所选时间范围内没有触发任何信号 · 更新于 ${now}</div>
+                <div class="empty-state">市场平静</div>`;
+        } else {
+            const trs = rows.map(r => {
+                const t = ALERT_TYPES[r.type] || { label: r.type, cls: 'vol' };
+                const d = new Date(r.time);
+                const tm = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`;
+                return `<tr class="alert-row" data-symbol="${escHtml(r.symbol)}" style="cursor:pointer">
+                    <td>${tm}</td>
+                    <td><strong>${escHtml(r.symbol)}</strong></td>
+                    <td><span class="alert-tag ${t.cls}">${t.label}</span></td>
+                    <td>${fmtNum(r.price)}</td>
+                    <td>${pctSpan(r.chg1h * 100, 2)}</td>
+                    <td>${r.volRatio.toFixed(1)}x</td>
+                    <td>${fmtNum(r.quote24h / 10000)} 万</td>
+                    <td>${pctSpan(r.oiChg1h * 100, 1)}</td>
+                    <td>${pctSpan(r.funding * 100, 4)}</td>
+                </tr>`;
+            }).join('');
+            box.innerHTML = `
+                <div class="result-summary">共 ${rows.length} 条信号 · 更新于 ${now} · 点行看该币资金流</div>
+                <div class="result-table-wrap"><table class="result-table">
+                    <thead><tr><th>时间</th><th>币种</th><th>类型</th><th>价格</th><th>1h</th>
+                    <th>量比</th><th>24h 成交</th><th>OI 1h</th><th>费率</th></tr></thead>
+                    <tbody>${trs}</tbody></table></div>`;
+            box.querySelectorAll('.alert-row').forEach(tr => tr.addEventListener('click', () => {
+                state.flowSymbol = tr.dataset.symbol;
+                state.currentView = 'market-flow';
+                renderSidebar();
+                renderCurrentView();
+            }));
+        }
+    } catch (e) {
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
+    }
+    state.alertTimer = setTimeout(loadAlerts, 60000);
 }
 
 /* ===== Market: 选币（六种筛选器） ===== */

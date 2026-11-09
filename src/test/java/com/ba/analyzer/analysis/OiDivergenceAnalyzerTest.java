@@ -81,7 +81,7 @@ class OiDivergenceAnalyzerTest {
         AnalysisReport.CoinAnalysis c = r.getCoins().get(0);
         assertEquals("long", c.getSide());
         assertEquals(25.0, c.getChangePercent(), 1e-9);
-        assertTrue(c.getDetail().startsWith("[偏多] 3天持仓+25.0%(3/3天增) 价格+3.00%"), c.getDetail());
+        assertTrue(c.getDetail().startsWith("[偏多] 3天持仓+25.0%(3/3天增,单日最大占40%) 价格+3.00%"), c.getDetail());
     }
 
     @Test
@@ -113,5 +113,39 @@ class OiDivergenceAnalyzerTest {
     void rejectsPriceOutsideRange() {
         // 价格暴跌 -30%: 超出默认 -10% 下限 (原"价涨仓增"无下限会误收)
         assertEquals(0, run(closes(100, 90, 80, 70), oi(1000, 1080, 1150, 1250), null).getMatchedCount());
+    }
+
+    @Test
+    void rejectsConcentratedSingleDayOiJump() {
+        // 增幅 250 里 230 集中在最后一天(92%) = 爆仓/一次性建仓, 不算持续建仓
+        assertEquals(0, run(closes(100, 101, 102, 103), oi(1000, 1010, 1020, 1250), null).getMatchedCount());
+    }
+
+    @Test
+    void keepsSmoothOiRiseAndReportsSingleDayShare() {
+        AnalysisReport r = run(closes(100, 101, 102, 103), oi(1000, 1080, 1150, 1250), null);
+
+        assertEquals(1, r.getMatchedCount());
+        assertTrue(r.getCoins().get(0).getDetail().contains("单日最大占40%"), r.getCoins().get(0).getDetail());
+    }
+
+    @Test
+    void shareFilterCanBeDisabledByParam() {
+        when(dataFetchService.fetchDailyKlines(anyList(), anyInt()))
+                .thenReturn(Map.of("XUSDT", closes(100, 101, 102, 103)));
+        when(dataFetchService.fetchOpenInterestHistoryBatch(anyList(), anyInt()))
+                .thenReturn(Map.of("XUSDT", oi(1000, 1010, 1020, 1250)));
+        when(dataFetchService.getLastFundingRates()).thenReturn(Map.of());
+
+        AnalysisReport r = analyzer.analyze(List.of("XUSDT"), Map.<String, Object>of("maxSingleDayOiShare", 1.0));
+
+        assertEquals(1, r.getMatchedCount());
+    }
+
+    @Test
+    void maxSingleDayIncreaseShareIsRatioOfPositiveDeltas() {
+        double share = OiDivergenceAnalyzer.maxSingleDayIncreaseShare(oi(1000, 1010, 1020, 1250));
+        assertEquals(230.0 / 250.0, share, 1e-9);
+        assertEquals(1.0, OiDivergenceAnalyzer.maxSingleDayIncreaseShare(oi(1000, 900, 800, 700)), 1e-9);
     }
 }

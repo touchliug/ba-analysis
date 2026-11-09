@@ -102,6 +102,7 @@ binance:
       min-oi-up-days: 4
       min-price-change-percent: -10
       max-price-change-percent: 10
+      max-single-day-oi-share: 0.5
 
     altcoin-pump-alert:
       enabled: false

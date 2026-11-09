@@ -58,7 +58,8 @@ public class OiDivergenceAnalyzer extends AbstractKlineAnalyzer {
                 "minOiRisePercent", c.getMinOiRisePercent(),
                 "minOiUpDays", c.getMinOiUpDays(),
                 "minPriceChangePercent", c.getMinPriceChangePercent(),
-                "maxPriceChangePercent", c.getMaxPriceChangePercent());
+                "maxPriceChangePercent", c.getMaxPriceChangePercent(),
+                "maxSingleDayOiShare", c.getMaxSingleDayOiShare());
     }
 
     @Override
@@ -68,7 +69,8 @@ public class OiDivergenceAnalyzer extends AbstractKlineAnalyzer {
                 "minOiRisePercent", getDoubleParam(requestParams, "minOiRisePercent", c.getMinOiRisePercent()),
                 "minOiUpDays", getIntParam(requestParams, "minOiUpDays", c.getMinOiUpDays()),
                 "minPriceChangePercent", getDoubleParam(requestParams, "minPriceChangePercent", c.getMinPriceChangePercent()),
-                "maxPriceChangePercent", getDoubleParam(requestParams, "maxPriceChangePercent", c.getMaxPriceChangePercent()));
+                "maxPriceChangePercent", getDoubleParam(requestParams, "maxPriceChangePercent", c.getMaxPriceChangePercent()),
+                "maxSingleDayOiShare", getDoubleParam(requestParams, "maxSingleDayOiShare", c.getMaxSingleDayOiShare()));
     }
 
     @Override
@@ -80,6 +82,7 @@ public class OiDivergenceAnalyzer extends AbstractKlineAnalyzer {
         s.put("minOiUpDays", Analyzer.param("int", "持仓量上涨的最少天数", c.getMinOiUpDays()));
         s.put("minPriceChangePercent", Analyzer.param("double", "价格变化下限%(收盘对收盘)", c.getMinPriceChangePercent()));
         s.put("maxPriceChangePercent", Analyzer.param("double", "价格变化上限%", c.getMaxPriceChangePercent()));
+        s.put("maxSingleDayOiShare", Analyzer.param("double", "单日增仓占比上限(0-1, 0关闭)", c.getMaxSingleDayOiShare()));
         return s;
     }
 
@@ -91,8 +94,13 @@ public class OiDivergenceAnalyzer extends AbstractKlineAnalyzer {
 
     @Override
     protected String buildDescription(Map<String, Object> params) {
-        return String.format("%d天内持仓量增≥%.0f%%(≥%d天增), 价格变化%.0f%%~%.0f%%: 价稳/升偏多, 价跌偏空",
+        double maxShare = (double) params.get("maxSingleDayOiShare");
+        String shareDesc = maxShare > 0
+                ? String.format(", 单日增仓占比≤%.0f%%", maxShare * 100)
+                : "";
+        return String.format("%d天内持仓量增≥%.0f%%(≥%d天增)%s, 价格变化%.0f%%~%.0f%%: 价稳/升偏多, 价跌偏空",
                 (int) params.get("days"), (double) params.get("minOiRisePercent"), (int) params.get("minOiUpDays"),
+                shareDesc,
                 (double) params.get("minPriceChangePercent"), (double) params.get("maxPriceChangePercent"));
     }
 
@@ -139,6 +147,11 @@ public class OiDivergenceAnalyzer extends AbstractKlineAnalyzer {
             }
             if (upDays < minOiUpDays) continue;
 
+            // 单日跳变过滤: 增幅若集中在某一天(爆仓/对锁/一次性建仓), 不算持续建仓。
+            double maxSingleDayShare = (double) params.get("maxSingleDayOiShare");
+            double maxDayShare = maxSingleDayIncreaseShare(oi);
+            if (maxSingleDayShare > 0 && maxDayShare > maxSingleDayShare) continue;
+
             boolean bullish = priceChange >= 0;
             Double rate = funding.get(symbol);
             String crowded = "";
@@ -152,12 +165,28 @@ public class OiDivergenceAnalyzer extends AbstractKlineAnalyzer {
                     .currentPrice(last.getClosePrice())
                     .changePercent(oiChange)
                     .side(bullish ? "long" : "short")
-                    .detail(String.format("[%s]%s %d天持仓%+.1f%%(%d/%d天增) 价格%+.2f%% 费率%s | 截至%s收盘",
-                            bullish ? "偏多" : "偏空", crowded, days, oiChange, upDays, days, priceChange,
+                    .detail(String.format("[%s]%s %d天持仓%+.1f%%(%d/%d天增,单日最大占%.0f%%) 价格%+.2f%% 费率%s | 截至%s收盘",
+                            bullish ? "偏多" : "偏空", crowded, days, oiChange, upDays, days, maxDayShare * 100, priceChange,
                             rate == null ? "-" : String.format("%+.4f%%", rate * 100),
                             Instant.ofEpochMilli(last.getOpenTime()).atOffset(ZoneOffset.ofHours(8)).format(DATE_FMT)))
                     .build());
         }
         return matched;
+    }
+
+    /**
+     * 最大单日增仓占全部增仓日合计的比例(0-1)。全为减仓时返回 1, 由调用方与阈值比较时自然过滤。
+     */
+    static double maxSingleDayIncreaseShare(List<OpenInterestData> oi) {
+        double totalUp = 0;
+        double maxUp = 0;
+        for (int i = 1; i < oi.size(); i++) {
+            double delta = oi.get(i).getOpenInterestValue() - oi.get(i - 1).getOpenInterestValue();
+            if (delta > 0) {
+                totalUp += delta;
+                if (delta > maxUp) maxUp = delta;
+            }
+        }
+        return totalUp > 0 ? maxUp / totalUp : 1.0;
     }
 }

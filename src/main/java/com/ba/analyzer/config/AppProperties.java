@@ -152,6 +152,9 @@ public class AppProperties {
         // 窗口内价格变化(%, 收盘对收盘)允许范围
         private double minPriceChangePercent = -10;
         private double maxPriceChangePercent = 10;
+        // 单日增仓占比上限(0-1]: 最大单日增仓 / 全部增仓日合计。
+        // 超过该值说明增幅集中在单日(爆仓/对锁等一次性事件), 不算持续建仓; <=0 关闭该过滤。
+        private double maxSingleDayOiShare = 0.5;
     }
 
     @Data

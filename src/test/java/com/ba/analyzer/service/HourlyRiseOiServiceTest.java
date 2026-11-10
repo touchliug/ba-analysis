@@ -12,8 +12,11 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -194,5 +197,77 @@ class HourlyRiseOiServiceTest {
 
         assertThat(service.scan(1).periods()).isEqualTo(2);
         assertThat(service.scan(99).periods()).isEqualTo(24);
+    }
+
+    // ======================== 缓存 / 刷新 / 并发 ========================
+
+    @Test
+    void returnsCacheWhenNotRefreshing() {
+        long lastOpen = (System.currentTimeMillis() / H) * H - H;
+        stubData(risingBars(4, lastOpen), List.of(
+                oi(lastOpen - 3 * H, 1_000, 5_000), oi(lastOpen + H, 1_100, 6_000)));
+
+        service.getLatest(4, false);
+        service.getLatest(4, false);
+
+        verify(dataFetch, times(1)).fetchKlines(anyList(), anyString(), anyInt());
+    }
+
+    @Test
+    void refreshForcesRescan() {
+        long lastOpen = (System.currentTimeMillis() / H) * H - H;
+        stubData(risingBars(4, lastOpen), List.of(
+                oi(lastOpen - 3 * H, 1_000, 5_000), oi(lastOpen + H, 1_100, 6_000)));
+
+        service.getLatest(4, true);
+        service.getLatest(4, true);
+
+        verify(dataFetch, times(2)).fetchKlines(anyList(), anyString(), anyInt());
+    }
+
+    @Test
+    void cacheIsPartitionedByPeriods() {
+        long lastOpen = (System.currentTimeMillis() / H) * H - H;
+        stubData(risingBars(4, lastOpen), List.of(
+                oi(lastOpen - 3 * H, 1_000, 5_000), oi(lastOpen + H, 1_100, 6_000)));
+
+        service.getLatest(4, true);
+        service.getLatest(5, false);          // 5 槽没有缓存 → 扫一次
+        service.getLatest(4, false);          // 4 槽的缓存不能被 5 顶掉
+
+        verify(dataFetch, times(2)).fetchKlines(anyList(), anyString(), anyInt());
+        assertThat(service.getLatest(4, false).periods()).isEqualTo(4);
+        assertThat(service.getLatest(5, false).periods()).isEqualTo(5);
+    }
+
+    @Test
+    void concurrentRefreshScansOnce() throws Exception {
+        long lastOpen = (System.currentTimeMillis() / H) * H - H;
+        when(dataFetch.fetchKlines(anyList(), anyString(), anyInt())).thenAnswer(inv -> {
+            Thread.sleep(300);                // 让两个线程真的撞在一起
+            return Map.of("BTCUSDT", risingBars(4, lastOpen));
+        });
+        when(dataFetch.fetchOpenInterestHistoryBatch(anyList(), anyString(), anyInt()))
+                .thenReturn(Map.of("BTCUSDT", List.of(
+                        oi(lastOpen - 3 * H, 1_000, 5_000), oi(lastOpen + H, 1_100, 6_000))));
+
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        Runnable task = () -> {
+            try {
+                go.await();
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            service.getLatest(4, true);
+        };
+        Thread a = new Thread(task);
+        Thread b = new Thread(task);
+        a.start();
+        b.start();
+        go.countDown();
+        a.join();
+        b.join();
+
+        verify(dataFetch, times(1)).fetchKlines(anyList(), anyString(), anyInt());
     }
 }

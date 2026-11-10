@@ -39,8 +39,10 @@ public class HourlyRiseOiService {
     private static final long KLINE_STALE_MS = 2 * HOUR_MS;
     /** 多取一些根，用于 24h 成交额与停牌缺口。 */
     private static final int EXTRA_BARS = 20;
-    /** 拿不到扫描锁最多等这么久，超时返回缓存或 503。 */
-    private static final long LOCK_WAIT_MS = 10_000L;
+    /** 拿不到扫描锁最多等这么久（首扫实测 ~12.5s，10s 会让第二个请求误报 503）。 */
+    private static final long DEFAULT_LOCK_WAIT_MS = 30_000L;
+    /** 缓存最长复用 1 小时：调度器只刷配置的 periods，其他周期的槽靠这里兜底。 */
+    private static final long CACHE_MAX_AGE_MS = 3_600_000L;
 
     /** 命中项。百分比字段是小数（0.0412 = 4.12%），与 AlertService 一致。 */
     public record Match(String symbol, double price, double priceChangePercent,
@@ -63,14 +65,24 @@ public class HourlyRiseOiService {
 
     private final DataFetchService dataFetchService;
     private final SymbolService symbolService;
+    private final long lockWaitMs;
+    private final java.util.function.LongSupplier clock;
     private final Map<Integer, ScanResult> slots = new ConcurrentHashMap<>();
     private final Map<Integer, ReentrantLock> locks = new ConcurrentHashMap<>();
     /** 每个 periods 槽已完成的扫描次数，用于合并并发刷新。 */
     private final Map<Integer, Long> scanCounts = new ConcurrentHashMap<>();
 
     public HourlyRiseOiService(DataFetchService dataFetchService, SymbolService symbolService) {
+        this(dataFetchService, symbolService, DEFAULT_LOCK_WAIT_MS, System::currentTimeMillis);
+    }
+
+    /** 供测试注入锁等待时长与时钟（生产用上面的两参构造器）。 */
+    HourlyRiseOiService(DataFetchService dataFetchService, SymbolService symbolService,
+                        long lockWaitMs, java.util.function.LongSupplier clock) {
         this.dataFetchService = dataFetchService;
         this.symbolService = symbolService;
+        this.lockWaitMs = lockWaitMs;
+        this.clock = clock;
     }
 
     public static int clampPeriods(int periods) {
@@ -84,15 +96,17 @@ public class HourlyRiseOiService {
      */
     public ScanResult getLatest(int periods, boolean refresh) {
         int n = clampPeriods(periods);
+        long now = clock.getAsLong();
         ScanResult cached = slots.get(n);
-        if (!refresh && cached != null) return cached;
+        // 缓存超过 1 小时就重扫：调度器只刷配置的 periods，用户切到 5/6 小时时这些槽也要更新
+        if (!refresh && cached != null && now - cached.scannedAt() < CACHE_MAX_AGE_MS) return cached;
 
         // 用「完成计数」而不是时间戳判重：毫秒级时钟精度会让连续两次 refresh 被误合并
         long seen = scanCounts.getOrDefault(n, 0L);
         ReentrantLock lock = locks.computeIfAbsent(n, k -> new ReentrantLock());
         boolean locked;
         try {
-            locked = lock.tryLock(LOCK_WAIT_MS, TimeUnit.MILLISECONDS);
+            locked = lock.tryLock(lockWaitMs, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ScanBusyException();
@@ -115,7 +129,7 @@ public class HourlyRiseOiService {
     /** 立即扫描并写入缓存槽（调度器走这里，不做锁与缓存判断）。 */
     public ScanResult scan(int periods) {
         int n = clampPeriods(periods);
-        long startedAt = System.currentTimeMillis();
+        long startedAt = clock.getAsLong();
         List<String> symbols = symbolService.getSymbolNames();
         if (symbols == null || symbols.isEmpty()) {
             ScanResult empty = new ScanResult(startedAt, 0, 0, n, 0, List.of());
@@ -199,7 +213,7 @@ public class HourlyRiseOiService {
         slots.put(n, result);
         scanCounts.merge(n, 1L, Long::sum);
         log.info("hourly-rise-oi scan: symbols={} matched={} skippedNoOi={} periods={} elapsed={}ms",
-                symbols.size(), matches.size(), skippedNoOi, n, System.currentTimeMillis() - startedAt);
+                symbols.size(), matches.size(), skippedNoOi, n, clock.getAsLong() - startedAt);
         return result;
     }
 

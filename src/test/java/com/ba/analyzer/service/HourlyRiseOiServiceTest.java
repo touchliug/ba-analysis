@@ -270,4 +270,67 @@ class HourlyRiseOiServiceTest {
 
         verify(dataFetch, times(1)).fetchKlines(anyList(), anyString(), anyInt());
     }
+
+    // ======================== 缓存过期 / 锁超时 ========================
+
+    @Test
+    void rescansWhenCacheIsOlderThanAnHour() {
+        long t0 = (System.currentTimeMillis() / H) * H;          // 固定整点，避免跨小时抖动
+        long lastOpen = t0 - H;
+        java.util.concurrent.atomic.AtomicLong now = new java.util.concurrent.atomic.AtomicLong(t0);
+        HourlyRiseOiService aged = new HourlyRiseOiService(dataFetch, symbols, 10_000L, now::get);
+        stubData(risingBars(4, lastOpen), List.of(
+                oi(lastOpen - 3 * H, 1_000, 5_000), oi(lastOpen + H, 1_100, 6_000)));
+
+        aged.getLatest(4, false);
+        now.addAndGet(2 * H);            // 缓存已经两小时了：调度器只管 4 槽，其他周期靠这里兜底
+        aged.getLatest(4, false);
+
+        verify(dataFetch, times(2)).fetchKlines(anyList(), anyString(), anyInt());
+    }
+
+    @Test
+    void throwsBusyWhenWaitingTooLongWithoutCache() throws Exception {
+        java.util.concurrent.CountDownLatch scanning = new java.util.concurrent.CountDownLatch(1);
+        when(dataFetch.fetchKlines(anyList(), anyString(), anyInt())).thenAnswer(inv -> {
+            scanning.countDown();
+            Thread.sleep(400);
+            return Map.of();
+        });
+        when(dataFetch.fetchOpenInterestHistoryBatch(anyList(), anyString(), anyInt())).thenReturn(Map.of());
+        HourlyRiseOiService impatient = new HourlyRiseOiService(dataFetch, symbols, 50L, System::currentTimeMillis);
+
+        Thread holder = new Thread(() -> impatient.getLatest(4, true));
+        holder.start();
+        scanning.await();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> impatient.getLatest(4, true))
+                .isInstanceOf(HourlyRiseOiService.ScanBusyException.class);
+        holder.join();
+    }
+
+    @Test
+    void returnsCacheWhenWaitingTooLong() throws Exception {
+        long lastOpen = (System.currentTimeMillis() / H) * H - H;
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        when(dataFetch.fetchKlines(anyList(), anyString(), anyInt())).thenAnswer(inv -> {
+            if (calls.incrementAndGet() > 1) Thread.sleep(400);   // 第二次扫描很慢，占住锁
+            return Map.of("BTCUSDT", risingBars(4, lastOpen));
+        });
+        when(dataFetch.fetchOpenInterestHistoryBatch(anyList(), anyString(), anyInt()))
+                .thenReturn(Map.of("BTCUSDT", List.of(
+                        oi(lastOpen - 3 * H, 1_000, 5_000), oi(lastOpen + H, 1_100, 6_000))));
+        HourlyRiseOiService impatient = new HourlyRiseOiService(dataFetch, symbols, 50L, System::currentTimeMillis);
+        impatient.getLatest(4, true);          // 建立缓存
+
+        Thread slow = new Thread(() -> impatient.getLatest(4, true));
+        slow.start();
+        Thread.sleep(80);                      // 等它拿到锁
+
+        HourlyRiseOiService.ScanResult r = impatient.getLatest(4, true);   // 50ms 超时 → 退回缓存
+
+        assertThat(r).isNotNull();
+        assertThat(r.periods()).isEqualTo(4);
+        slow.join();
+    }
 }

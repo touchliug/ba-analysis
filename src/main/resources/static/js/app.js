@@ -975,8 +975,11 @@ async function loadHourlyRise(refresh) {
     const box = document.getElementById('market-result');
     if (!box) return;
     if (state.hourlyRiseTimer) { clearTimeout(state.hourlyRiseTimer); state.hourlyRiseTimer = null; }
+    const periods = state.hourlyRisePeriod;
     try {
-        const r = await marketApi.hourlyRise(state.hourlyRisePeriod, refresh);
+        const r = await marketApi.hourlyRise(periods, refresh);
+        // 慢响应回来时用户可能已经切视图或改了周期：丢弃，别写进别的视图共用的 #market-result
+        if (state.currentView !== 'market-hourly-rise' || state.hourlyRisePeriod !== periods) return;
         const scanned = new Date(r.scannedAt).toLocaleString('zh-CN');
         if (!r.matches || r.matches.length === 0) {
             box.innerHTML = `<div class="result-summary">扫描 ${r.totalSymbols} 个币 · 无命中 · 扫描于 ${scanned}</div>
@@ -1011,6 +1014,7 @@ async function loadHourlyRise(refresh) {
             }));
         }
     } catch (e) {
+        if (state.currentView !== 'market-hourly-rise' || state.hourlyRisePeriod !== periods) return;
         box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e.message || e))}</div>`;
     }
     state.hourlyRiseTimer = setTimeout(() => loadHourlyRise(false), 60000);

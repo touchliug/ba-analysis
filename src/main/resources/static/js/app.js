@@ -134,6 +134,11 @@ const marketApi = {
         const res = await fetch(`${MARKET_BASE}/alerts?hours=${hours || 6}`);
         if (!res.ok) throw new Error('alerts failed');
         return res.json();
+    },
+    async hourlyRise(periods, refresh) {
+        const res = await fetch(`${MARKET_BASE}/hourly-rise-oi?periods=${periods || 4}&refresh=${refresh ? 'true' : 'false'}`);
+        if (!res.ok) throw new Error(res.status === 503 ? '扫描进行中，请稍后' : 'hourly scan failed');
+        return res.json();
     }
 };
 
@@ -146,6 +151,7 @@ const RATIO_LABELS = {
 };
 const TICKER_TITLES = { gainers: '24h 涨幅榜', losers: '24h 跌幅榜', volume: '24h 成交额榜' };
 const MARKET_ITEMS = [
+    { view: 'market-hourly-rise', label: '小时连涨OI增' },
     { view: 'market-alert', label: '异动预警' },
     { view: 'market-screen', label: '选币' },
     { view: 'market-stage', label: '阶段扫描' },
@@ -180,7 +186,10 @@ const state = {
     screenLimit: 50,
     // 预警
     alertHours: 12,
-    alertTimer: null
+    alertTimer: null,
+    // 小时连涨 OI 增
+    hourlyRisePeriod: 4,
+    hourlyRiseTimer: null
 };
 
 /* ===== Sidebar ===== */
@@ -231,8 +240,10 @@ function renderSidebar() {
 /* ===== View Router ===== */
 function renderCurrentView() {
     if (state.alertTimer) { clearTimeout(state.alertTimer); state.alertTimer = null; }
+    if (state.hourlyRiseTimer) { clearTimeout(state.hourlyRiseTimer); state.hourlyRiseTimer = null; }
     switch (state.currentView) {
         case 'detail': renderDetail(state.currentAnalyzer); break;
+        case 'market-hourly-rise': renderHourlyRise(); break;
         case 'market-lsr': renderMarketLsr(); break;
         case 'market-stage': renderStage(); break;
         case 'market-screen': renderScreen(); break;
@@ -925,6 +936,84 @@ async function loadAlerts() {
         box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e))}</div>`;
     }
     state.alertTimer = setTimeout(loadAlerts, 60000);
+}
+
+/* ===== Market: 小时连涨 + OI 净增 ===== */
+function renderHourlyRise() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        <div class="page-title">小时连涨 OI 增</div>
+        <div class="detail-section">
+            <div class="flow-hint">
+                口径：最近 N 根<strong>已收盘</strong> 1h K 线全部 <code>close &gt; open</code>，
+                且同窗口 <code>sum_open_interest</code>（币数）净增。OI 为整点快照，页面展示实际使用的 OI 区间。
+                每小时 :10 自动扫描，页面每 60 秒读一次缓存。
+            </div>
+            <div class="market-toolbar" style="margin-top:10px">
+                <label class="toolbar-label">连涨</label>
+                <select id="hr-hours" class="toolbar-select">
+                    <option value="2">2 小时</option><option value="3">3 小时</option>
+                    <option value="4">4 小时</option><option value="5">5 小时</option>
+                    <option value="6">6 小时</option>
+                </select>
+                <button class="btn-primary" id="hr-go">立即扫描</button>
+            </div>
+            <div id="market-result"><div class="loading">扫描中…</div></div>
+        </div>`;
+    const sel = document.getElementById('hr-hours');
+    sel.value = String(state.hourlyRisePeriod);
+    sel.addEventListener('change', () => {
+        state.hourlyRisePeriod = parseInt(sel.value, 10) || 4;
+        loadHourlyRise(false);
+    });
+    document.getElementById('hr-go').addEventListener('click', () => loadHourlyRise(true));
+    loadHourlyRise(false);
+}
+
+async function loadHourlyRise(refresh) {
+    if (state.currentView !== 'market-hourly-rise') return;
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    if (state.hourlyRiseTimer) { clearTimeout(state.hourlyRiseTimer); state.hourlyRiseTimer = null; }
+    try {
+        const r = await marketApi.hourlyRise(state.hourlyRisePeriod, refresh);
+        const scanned = new Date(r.scannedAt).toLocaleString('zh-CN');
+        if (!r.matches || r.matches.length === 0) {
+            box.innerHTML = `<div class="result-summary">扫描 ${r.totalSymbols} 个币 · 无命中 · 扫描于 ${scanned}</div>
+                <div class="empty-state">没有符合条件的币种</div>`;
+        } else {
+            const trs = r.matches.map(m => {
+                const end = new Date(m.oiEndTime).toLocaleString('zh-CN', { hour12: false });
+                const span = ((m.oiEndTime - m.oiStartTime) / 3600000).toFixed(0);
+                return `<tr class="hr-row" data-symbol="${escHtml(m.symbol)}" style="cursor:pointer">
+                    <td><strong>${escHtml(m.symbol)}</strong></td>
+                    <td>${fmtNum(m.price)}</td>
+                    <td>${pctSpan(m.priceChangePercent * 100, 2)}</td>
+                    <td>${pctSpan(m.oiChangePercent * 100, 2)}</td>
+                    <td>${m.periods}h</td>
+                    <td>${span}h</td>
+                    <td>${fmtVol(m.quoteVolume24h)}</td>
+                    <td>${end}</td>
+                </tr>`;
+            }).join('');
+            box.innerHTML = `
+                <div class="result-summary">共 ${r.matchedCount} 个命中 · 扫描 ${r.totalSymbols} 个币 ·
+                    OI 缺失 ${r.skippedNoOi} 个 · 扫描于 ${scanned} · 点行看资金流</div>
+                <div class="result-table-wrap"><table class="result-table">
+                    <thead><tr><th>币种</th><th>现价</th><th>窗口涨幅</th><th>OI 变化</th>
+                    <th>连涨</th><th>OI 区间</th><th>24h 成交额</th><th>OI 截止</th></tr></thead>
+                    <tbody>${trs}</tbody></table></div>`;
+            box.querySelectorAll('.hr-row').forEach(tr => tr.addEventListener('click', () => {
+                state.flowSymbol = tr.dataset.symbol;
+                state.currentView = 'market-flow';
+                renderSidebar();
+                renderCurrentView();
+            }));
+        }
+    } catch (e) {
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e.message || e))}</div>`;
+    }
+    state.hourlyRiseTimer = setTimeout(() => loadHourlyRise(false), 60000);
 }
 
 /* ===== Market: 选币（六种筛选器） ===== */

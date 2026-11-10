@@ -16,6 +16,7 @@ public class AppProperties {
     private AnalysisConfig analysis = new AnalysisConfig();
     private ScheduleConfig schedule = new ScheduleConfig();
     private ReportConfig report = new ReportConfig();
+    private HourlyScanConfig hourlyScan = new HourlyScanConfig();
 
     /** 原币安客户端时代的并发配置, 拆分后只剩 historyBufferDays 被分析器使用。 */
     @Data
@@ -219,6 +220,16 @@ public class AppProperties {
     public static class ScheduleConfig {
         private String dailyAnalysis = "0 5 8 * * ?";
         private String shortTermAnalysis = "0 */5 * * * ?";
+        /** 整点后 10 分钟: 等 ba-sync 把上一个整点的 1h OI 写入库。 */
+        private String hourlyScan = "0 10 * * * ?";
+    }
+
+    /** 每小时扫描: 最近 N 根已收盘 1h 线连阳 + 同窗口 sum_open_interest 净增。 */
+    @Data
+    public static class HourlyScanConfig {
+        private boolean enabled = true;
+        @Min(2)
+        private int periods = 4;
     }
 
     @Data

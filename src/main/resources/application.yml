@@ -158,6 +158,13 @@ binance:
     # JVM 固定 Asia/Shanghai 运行 (见 AnalysisApplication)。以下 cron 均为北京时间。
     daily-analysis: "0 5 8 * * ?"
     short-term-analysis: "0 */5 * * * ?"
+    # 整点后 10 分钟: 等 ba-sync 把上一个整点的 1h OI 写入库 (其 mid-freq 在 :05/:35)
+    hourly-scan: "0 10 * * * ?"
+
+  # 每小时扫描: 最近 N 根已收盘 1h 线连阳 + 同窗口 sum_open_interest 净增 (独立页面, 不进分析器框架)
+  hourly-scan:
+    enabled: true
+    periods: 4
 
   report:
     dir: ./reports

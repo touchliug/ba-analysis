@@ -76,6 +76,7 @@ Everything analyzer-related is in `application.yml` under `binance.analysis.*`, 
 - `GET /stage`, `GET /stage/{symbol}` — market stage scan/detail.
 - `GET /screen/types`, `GET /screen` — screener definitions and results.
 - `GET /flow/{symbol}` — aligned price / taker-buy / OI / top-position series for the flow chart.
+- `GET /api/market/hourly-rise-oi` — hourly scan: last N closed 1h bars all close>open and `sum_open_interest` net up in the same window (independent page, cached in memory; `periods` 2–24, `refresh=true` forces a rescan).
 
 `GET /api/health` checks the database (`SELECT 1`) and returns 503 with `status=DOWN` when MySQL is unavailable.
 

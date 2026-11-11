@@ -189,6 +189,7 @@ const state = {
     alertTimer: null,
     // 小时连涨 OI 增
     hourlyRisePeriod: 4,
+    hourlyRiseSeq: 0,
     hourlyRiseTimer: null
 };
 
@@ -958,6 +959,7 @@ function renderHourlyRise() {
                 </select>
                 <button class="btn-primary" id="hr-go">立即扫描</button>
             </div>
+            <div id="hr-status" class="hr-status" style="display:none"></div>
             <div id="market-result"><div class="loading">扫描中…</div></div>
         </div>`;
     const sel = document.getElementById('hr-hours');
@@ -970,16 +972,37 @@ function renderHourlyRise() {
     loadHourlyRise(false);
 }
 
-async function loadHourlyRise(refresh) {
+/** 扫描期间给出明确反馈：按钮置灰改文案 + 状态行提示（全市场扫描要 10~20 秒）。 */
+function setHourlyRiseBusy(busy) {
+    const btn = document.getElementById('hr-go');
+    if (btn) {
+        btn.disabled = busy;
+        btn.textContent = busy ? '扫描中…' : '立即扫描';
+    }
+    const sel = document.getElementById('hr-hours');
+    if (sel) sel.disabled = busy;
+    const status = document.getElementById('hr-status');
+    if (status) {
+        status.style.display = busy ? '' : 'none';
+        status.textContent = busy ? '正在扫描全市场（约 10~20 秒），完成后自动刷新…' : '';
+    }
+}
+
+async function loadHourlyRise(refresh, silent) {
     if (state.currentView !== 'market-hourly-rise') return;
     const box = document.getElementById('market-result');
     if (!box) return;
     if (state.hourlyRiseTimer) { clearTimeout(state.hourlyRiseTimer); state.hourlyRiseTimer = null; }
     const periods = state.hourlyRisePeriod;
+    // 请求序号：慢响应回来时若已有更新的请求（重复点击/切周期），丢弃旧结果
+    const seq = (state.hourlyRiseSeq || 0) + 1;
+    state.hourlyRiseSeq = seq;
+    if (!silent) setHourlyRiseBusy(true);
     try {
         const r = await marketApi.hourlyRise(periods, refresh);
-        // 慢响应回来时用户可能已经切视图或改了周期：丢弃，别写进别的视图共用的 #market-result
-        if (state.currentView !== 'market-hourly-rise' || state.hourlyRisePeriod !== periods) return;
+        // 慢响应回来时用户可能已经切视图、改了周期或又点了扫描：丢弃，别写进别的视图共用的 #market-result
+        if (state.currentView !== 'market-hourly-rise' || state.hourlyRisePeriod !== periods
+                || seq !== state.hourlyRiseSeq) return;
         const scanned = new Date(r.scannedAt).toLocaleString('zh-CN');
         if (!r.matches || r.matches.length === 0) {
             box.innerHTML = `<div class="result-summary">扫描 ${r.totalSymbols} 个币 · 无命中 · 扫描于 ${scanned}</div>
@@ -1014,10 +1037,13 @@ async function loadHourlyRise(refresh) {
             }));
         }
     } catch (e) {
-        if (state.currentView !== 'market-hourly-rise' || state.hourlyRisePeriod !== periods) return;
+        if (state.currentView !== 'market-hourly-rise' || state.hourlyRisePeriod !== periods
+                || seq !== state.hourlyRiseSeq) return;
         box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e.message || e))}</div>`;
+    } finally {
+        if (seq === state.hourlyRiseSeq) setHourlyRiseBusy(false);
     }
-    state.hourlyRiseTimer = setTimeout(() => loadHourlyRise(false), 60000);
+    state.hourlyRiseTimer = setTimeout(() => loadHourlyRise(false, true), 60000);
 }
 
 /* ===== Market: 选币（六种筛选器） ===== */

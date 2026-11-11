@@ -310,6 +310,15 @@ class HourlyRiseOiServiceTest {
     }
 
     @Test
+    void springCanInstantiateTheService() {
+        new org.springframework.boot.test.context.runner.ApplicationContextRunner()
+                .withBean(DataFetchService.class, () -> mock(DataFetchService.class))
+                .withBean(SymbolService.class, () -> mock(SymbolService.class))
+                .withBean(HourlyRiseOiService.class)
+                .run(ctx -> assertThat(ctx).hasNotFailed());
+    }
+
+    @Test
     void returnsCacheWhenWaitingTooLong() throws Exception {
         long lastOpen = (System.currentTimeMillis() / H) * H - H;
         java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();

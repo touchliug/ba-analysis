@@ -72,6 +72,7 @@ public class HourlyRiseOiService {
     /** 每个 periods 槽已完成的扫描次数，用于合并并发刷新。 */
     private final Map<Integer, Long> scanCounts = new ConcurrentHashMap<>();
 
+    @org.springframework.beans.factory.annotation.Autowired
     public HourlyRiseOiService(DataFetchService dataFetchService, SymbolService symbolService) {
         this(dataFetchService, symbolService, DEFAULT_LOCK_WAIT_MS, System::currentTimeMillis);
     }

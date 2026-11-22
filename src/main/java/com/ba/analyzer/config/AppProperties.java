@@ -17,6 +17,7 @@ public class AppProperties {
     private ScheduleConfig schedule = new ScheduleConfig();
     private ReportConfig report = new ReportConfig();
     private HourlyScanConfig hourlyScan = new HourlyScanConfig();
+    private SetupScanConfig setupScan = new SetupScanConfig();
 
     /** 原币安客户端时代的并发配置, 拆分后只剩 historyBufferDays 被分析器使用。 */
     @Data
@@ -225,6 +226,8 @@ public class AppProperties {
         private String shortTermAnalysis = "0 */5 * * * ?";
         /** 整点后 10 分钟: 等 ba-sync 把上一个整点的 1h OI 写入库。 */
         private String hourlyScan = "0 10 * * * ?";
+        /** 整点后 40 分钟: 与 hourly-scan 错开, 避免两轮全市场扫描撞在一起。 */
+        private String setupScan = "0 40 * * * ?";
     }
 
     /** 每小时扫描: 最近 N 根已收盘 1h 线连阳 + 同窗口 sum_open_interest 净增。 */
@@ -233,6 +236,93 @@ public class AppProperties {
         private boolean enabled = true;
         @Min(2)
         private int periods = 4;
+    }
+
+    /**
+     * 启动扫描: 四个「行情启动」捕捉器共用一次全市场加载。
+     *
+     * <p>与 hourly-scan 的区别: hourly-scan 要求连阳 + OI 增, 只能抓已经走出来的中段;
+     * 这里抓的是点火、旗形、回踩确认、以及点火前的散户空头拥挤。
+     */
+    @Data
+    public static class SetupScanConfig {
+        private boolean enabled = true;
+        private LiquidityConfig liquidity = new LiquidityConfig();
+        private VolumeSpikeConfig volumeSpike = new VolumeSpikeConfig();
+        private FlagBreakoutConfig flagBreakout = new FlagBreakoutConfig();
+        private PullbackConfirmConfig pullbackConfirm = new PullbackConfirmConfig();
+        private RetailShortConfig retailShort = new RetailShortConfig();
+    }
+
+    /** 流动性门槛: 24h 成交额太小的币, 技术形态没有交易意义 (几万美元就能插针)。 */
+    @Data
+    public static class LiquidityConfig {
+        private double minQuoteVolume24h = 2_000_000;
+    }
+
+    /** 放量突破: 单根 1h 涨幅 + 量能倍数 + 站上 N 日高。 */
+    @Data
+    public static class VolumeSpikeConfig {
+        /** 均量基准: 触发根之前取多少根 1h。 */
+        private int avgBars = 24;
+        /** 触发根成交额 / 基准均量 >= 此倍数。 */
+        private double minVolumeMultiple = 10.0;
+        /** 触发根涨幅下限 (%), 按 close/open。 */
+        private double minChangePercent = 5.0;
+        /** 突破参考位: 前 N 个交易日最高价。 */
+        private int breakoutDays = 20;
+        /** true = 必须站上 N 日高才算 (纯放量不突破不出信号)。 */
+        private boolean requireBreakout = true;
+    }
+
+    /** 高位旗形: 一波大涨后窄幅横盘, 放量突破旗形上沿。 */
+    @Data
+    public static class FlagBreakoutConfig {
+        /** 前置涨幅回看天数 (日线)。 */
+        private int priorGainDays = 30;
+        /** 前置涨幅下限 (%), 过滤没有主升浪的币。 */
+        private double minPriorGainPercent = 100.0;
+        /** 旗形由多少根 1h 组成。 */
+        private int flagBars = 10;
+        /** 旗形振幅上限 (%), (高-低)/低。 */
+        private double maxFlagRangePercent = 8.0;
+        /** 突破根量能 / 旗形均量 >= 此倍数。 */
+        private double minBreakoutVolumeMultiple = 1.5;
+        /** 目标 = 旗形上沿 + 旗高 × 此倍数 (measured move)。 */
+        private double targetFlagHeights = 2.0;
+    }
+
+    /** 突破回踩: 脉冲后回踩 38.2%~78.6%, 不破启动前收盘, 放量收阳确认。 */
+    @Data
+    public static class PullbackConfirmConfig {
+        /** 在最近多少根 1h 里找脉冲。 */
+        private int spikeLookbackBars = 48;
+        /** 脉冲定义: 单根涨幅下限 (%). */
+        private double minSpikeChangePercent = 30.0;
+        /** 脉冲定义: 成交额 / 前 24 根均量 >= 此倍数。 */
+        private double minSpikeVolumeMultiple = 20.0;
+        /** 回踩起点 (38.2%)。 */
+        private double minRetrace = 0.382;
+        /** 回踩上限 (78.6%); 超过说明结构已破。 */
+        private double maxRetrace = 0.786;
+        /** 回踩段均量 / 脉冲根量 <= 此值 (缩量回踩)。 */
+        private double maxPullbackVolumeRatio = 0.5;
+        /** 确认根量能 / 前 6 根均量 >= 此倍数。 */
+        private double minConfirmVolumeRatio = 1.0;
+    }
+
+    /** 散户空头拥挤: 点火前的观察名单, 不是买点。 */
+    @Data
+    public static class RetailShortConfig {
+        private String period = "1h";
+        /** 散户账户多空比上限 (longAccounts/shortAccounts)。0.55 ≈ 35% 做多。 */
+        private double maxRetailRatio = 0.55;
+        /** 大户持仓多空比下限。 */
+        private double minTopPositionRatio = 1.3;
+        /** 大户比相对多少根之前抬升。 */
+        private int topRiseLookback = 6;
+        /** OI 24h 变化下限 (%), 低于此值说明在去杠杆。 */
+        private double minOiChange24hPercent = -5.0;
     }
 
     @Data

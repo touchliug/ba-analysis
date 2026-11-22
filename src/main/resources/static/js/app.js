@@ -139,6 +139,16 @@ const marketApi = {
         const res = await fetch(`${MARKET_BASE}/hourly-rise-oi?periods=${periods || 4}&refresh=${refresh ? 'true' : 'false'}`);
         if (!res.ok) throw new Error(res.status === 503 ? '扫描进行中，请稍后' : 'hourly scan failed');
         return res.json();
+    },
+    async setupScanTypes() {
+        const res = await fetch(`${MARKET_BASE}/setup-scan/types`);
+        if (!res.ok) throw new Error('setup scan types failed');
+        return res.json();
+    },
+    async setupScan(type, refresh) {
+        const res = await fetch(`${MARKET_BASE}/setup-scan?type=${encodeURIComponent(type || 'volume-spike')}&refresh=${refresh ? 'true' : 'false'}`);
+        if (!res.ok) throw new Error(res.status === 503 ? '扫描进行中，请稍后' : 'setup scan failed');
+        return res.json();
     }
 };
 
@@ -152,6 +162,7 @@ const RATIO_LABELS = {
 const TICKER_TITLES = { gainers: '24h 涨幅榜', losers: '24h 跌幅榜', volume: '24h 成交额榜' };
 const MARKET_ITEMS = [
     { view: 'market-hourly-rise', label: '小时连涨OI增' },
+    { view: 'market-setup', label: '启动扫描' },
     { view: 'market-alert', label: '异动预警' },
     { view: 'market-screen', label: '选币' },
     { view: 'market-stage', label: '阶段扫描' },
@@ -190,7 +201,11 @@ const state = {
     // 小时连涨 OI 增
     hourlyRisePeriod: 4,
     hourlyRiseSeq: 0,
-    hourlyRiseTimer: null
+    hourlyRiseTimer: null,
+    // 启动扫描
+    setupType: 'volume-spike',
+    setupSeq: 0,
+    setupTimer: null
 };
 
 /* ===== Sidebar ===== */
@@ -242,9 +257,11 @@ function renderSidebar() {
 function renderCurrentView() {
     if (state.alertTimer) { clearTimeout(state.alertTimer); state.alertTimer = null; }
     if (state.hourlyRiseTimer) { clearTimeout(state.hourlyRiseTimer); state.hourlyRiseTimer = null; }
+    if (state.setupTimer) { clearTimeout(state.setupTimer); state.setupTimer = null; }
     switch (state.currentView) {
         case 'detail': renderDetail(state.currentAnalyzer); break;
         case 'market-hourly-rise': renderHourlyRise(); break;
+        case 'market-setup': renderSetup(); break;
         case 'market-lsr': renderMarketLsr(); break;
         case 'market-stage': renderStage(); break;
         case 'market-screen': renderScreen(); break;
@@ -1044,6 +1061,197 @@ async function loadHourlyRise(refresh, silent) {
         if (seq === state.hourlyRiseSeq) setHourlyRiseBusy(false);
     }
     state.hourlyRiseTimer = setTimeout(() => loadHourlyRise(false, true), 60000);
+}
+
+/* ===== Market: 启动扫描（放量突破 / 高位旗形 / 突破回踩 / 散户空头拥挤） ===== */
+const SETUP_FALLBACK = [
+    { type: 'volume-spike', title: '放量突破', desc: '1h 涨幅 + 量能倍数 + 站上 20 日高' },
+    { type: 'flag-breakout', title: '高位旗形', desc: '大涨后窄幅横盘，放量突破旗形上沿' },
+    { type: 'pullback-confirm', title: '突破回踩', desc: '脉冲后回踩 38.2%~78.6%，放量收阳确认' },
+    { type: 'retail-short', title: '散户空头拥挤', desc: '散户账户比 ≤0.55 + 大户比 ≥1.3 抬升' }
+];
+
+function rrText(v) {
+    if (v == null || isNaN(v) || v <= 0) return '<span class="neutral">--</span>';
+    return `${v.toFixed(1)}:1`;
+}
+
+function setupTime(ts) {
+    if (!ts) return '--';
+    return new Date(ts).toLocaleString('zh-CN', { hour12: false });
+}
+
+/** 每个 type 的列定义 + 单元格渲染，避免一张大宽表塞进所有字段。 */
+const SETUP_COLUMNS = {
+    'volume-spike': {
+        head: ['币种', '现价', '小时涨幅', '量能', '破位(20日高)', '止损', '目标', '盈亏比', '24h成交额', '触发时间'],
+        cells: m => [
+            fmtNum(m.price),
+            pctSpan(m.changePercent * 100, 2),
+            `${m.volumeRatio.toFixed(0)}x`,
+            fmtNum(m.breakoutPrice),
+            fmtNum(m.stopPrice),
+            fmtNum(m.targetPrice),
+            rrText(m.riskReward),
+            fmtVol(m.quoteVolume24h),
+            setupTime(m.triggerTime)
+        ]
+    },
+    'flag-breakout': {
+        head: ['币种', '现价', '30日涨幅', '旗形振幅', '旗形上沿', '量能', '止损', '目标', '盈亏比', '24h成交额'],
+        cells: m => [
+            fmtNum(m.price),
+            pctSpan(m.priorGainPercent * 100, 0),
+            pctSpan(m.rangePercent * 100, 1),
+            fmtNum(m.breakoutPrice),
+            `${m.volumeRatio.toFixed(1)}x`,
+            fmtNum(m.stopPrice),
+            fmtNum(m.targetPrice),
+            rrText(m.riskReward),
+            fmtVol(m.quoteVolume24h)
+        ]
+    },
+    'pullback-confirm': {
+        head: ['币种', '现价', '回踩幅度', '确认涨幅', '脉冲高(目标)', '止损', '盈亏比', '24h成交额', '触发时间'],
+        cells: m => [
+            fmtNum(m.price),
+            pctSpan(m.rangePercent * 100, 1),
+            pctSpan(m.changePercent * 100, 2),
+            fmtNum(m.breakoutPrice),
+            fmtNum(m.stopPrice),
+            rrText(m.riskReward),
+            fmtVol(m.quoteVolume24h),
+            setupTime(m.triggerTime)
+        ]
+    },
+    'retail-short': {
+        head: ['币种', '现价', '散户多空比', '大户持仓比', 'OI 24h', '费率(4h)', '24h成交额', '数据时间'],
+        cells: m => [
+            fmtNum(m.price),
+            `<strong>${m.retailRatio.toFixed(2)}</strong>`,
+            `<strong>${m.topPositionRatio.toFixed(2)}</strong>`,
+            pctSpan(m.oiChange24h * 100, 1),
+            pctSpan(m.fundingRate * 100, 4),
+            fmtVol(m.quoteVolume24h),
+            setupTime(m.triggerTime)
+        ]
+    }
+};
+
+function renderSetup() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        <div class="page-title">启动扫描</div>
+        <div class="detail-section">
+            <div class="flow-hint">
+                四个捕捉器，共用一次全市场加载（1h + 1d K 线、1h OI、多空比、费率）。
+                <strong>放量突破</strong>抓点火那一根；<strong>高位旗形</strong>抓空中加油；
+                <strong>突破回踩</strong>抓回踩确认；<strong>散户空头拥挤</strong>是点火前的观察名单。
+                全部只用<strong>已收盘</strong> 1h K 线，并过滤 24h 成交额 &lt; 200 万的币。每小时 :40 自动扫描。
+            </div>
+            <div id="setup-tabs" class="screen-tabs" style="margin-top:10px"><div class="loading">加载捕捉器…</div></div>
+            <div class="market-toolbar" style="margin-top:8px">
+                <button class="btn-primary" id="su-go">立即扫描</button>
+                <span id="su-desc" class="flow-hint" style="margin:0"></span>
+            </div>
+            <div id="su-status" class="hr-status" style="display:none"></div>
+            <div id="market-result"><div class="loading">扫描中…</div></div>
+        </div>`;
+    document.getElementById('su-go').addEventListener('click', () => loadSetup(true));
+    loadSetup(false);
+}
+
+function setSetupBusy(busy) {
+    const btn = document.getElementById('su-go');
+    if (btn) {
+        btn.disabled = busy;
+        btn.textContent = busy ? '扫描中…' : '立即扫描';
+    }
+    const status = document.getElementById('su-status');
+    if (status) {
+        status.style.display = busy ? '' : 'none';
+        status.textContent = busy ? '正在扫描全市场（约 10~30 秒），完成后自动刷新…' : '';
+    }
+}
+
+function renderSetupTabs(defs) {
+    const tabs = document.getElementById('setup-tabs');
+    if (!tabs) return;
+    tabs.innerHTML = defs.map(d =>
+        `<button class="screen-tab${d.type === state.setupType ? ' active' : ''}" data-type="${escHtml(d.type)}" title="${escHtml(d.desc || '')}">${escHtml(d.title)}</button>`
+    ).join('');
+    const desc = document.getElementById('su-desc');
+    const cur = defs.find(d => d.type === state.setupType);
+    if (desc) desc.textContent = cur ? cur.desc : '';
+    tabs.querySelectorAll('.screen-tab').forEach(btn => btn.addEventListener('click', () => {
+        state.setupType = btn.dataset.type;
+        renderSetupTabs(defs);
+        loadSetup(false);
+    }));
+}
+
+async function loadSetup(refresh) {
+    if (state.currentView !== 'market-setup') return;
+    const box = document.getElementById('market-result');
+    if (!box) return;
+    if (state.setupTimer) { clearTimeout(state.setupTimer); state.setupTimer = null; }
+
+    const type = state.setupType;
+    const seq = (state.setupSeq || 0) + 1;
+    state.setupSeq = seq;
+    if (!refresh) setSetupBusy(true);
+
+    try {
+        const tabs = document.getElementById('setup-tabs');
+        if (!tabs.dataset.ready) {
+            let defs = SETUP_FALLBACK;
+            try {
+                const fromApi = await marketApi.setupScanTypes();
+                if (Array.isArray(fromApi) && fromApi.length) defs = fromApi;
+            } catch (e) {
+                // 接口异常时退回内置定义，页面仍可用
+            }
+            tabs.dataset.ready = '1';
+            renderSetupTabs(defs);
+        }
+
+        const r = await marketApi.setupScan(type, refresh);
+        if (state.currentView !== 'market-setup' || state.setupType !== type
+                || seq !== state.setupSeq) return;
+
+        const scanned = new Date(r.scannedAt).toLocaleString('zh-CN');
+        if (!r.matches || r.matches.length === 0) {
+            box.innerHTML = `<div class="result-summary">扫描 ${r.totalSymbols} 个币 · 无命中 · 扫描于 ${scanned}</div>
+                <div class="empty-state">当前没有符合条件的币种</div>`;
+        } else {
+            const cols = SETUP_COLUMNS[type] || SETUP_COLUMNS['volume-spike'];
+            const head = `<th>${cols.head.join('</th><th>')}</th><th>说明</th>`;
+            const rows = r.matches.map(m => {
+                const tds = cols.cells(m).map(v => `<td>${v}</td>`).join('');
+                return `<tr class="su-row" data-symbol="${escHtml(m.symbol)}" style="cursor:pointer">
+                    <td><strong>${escHtml(m.symbol)}</strong></td>${tds}
+                    <td style="font-size:12px;color:var(--text-dim)">${escHtml(m.note || '')}</td></tr>`;
+            }).join('');
+            box.innerHTML = `
+                <div class="result-summary">共 ${r.matchedCount} 个命中 · 扫描 ${r.totalSymbols} 个币 ·
+                    扫描于 ${scanned} · 点行看资金流</div>
+                <div class="result-table-wrap"><table class="result-table">
+                    <thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+            box.querySelectorAll('.su-row').forEach(tr => tr.addEventListener('click', () => {
+                state.flowSymbol = tr.dataset.symbol;
+                state.currentView = 'market-flow';
+                renderSidebar();
+                renderCurrentView();
+            }));
+        }
+    } catch (e) {
+        if (state.currentView !== 'market-setup' || state.setupType !== type
+                || seq !== state.setupSeq) return;
+        box.innerHTML = `<div class="error-msg">加载失败: ${escHtml(String(e.message || e))}</div>`;
+    } finally {
+        if (seq === state.setupSeq) setSetupBusy(false);
+    }
+    state.setupTimer = setTimeout(() => loadSetup(false), 60000);
 }
 
 /* ===== Market: 选币（六种筛选器） ===== */

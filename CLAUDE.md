@@ -77,6 +77,7 @@ Everything analyzer-related is in `application.yml` under `binance.analysis.*`, 
 - `GET /screen/types`, `GET /screen` — screener definitions and results.
 - `GET /flow/{symbol}` — aligned price / taker-buy / OI / top-position series for the flow chart.
 - `GET /api/market/hourly-rise-oi` — hourly scan: last N closed 1h bars all close>open and `sum_open_interest` net up in the same window (independent page, cached in memory; `periods` 2–24, `refresh=true` forces a rescan).
+- `GET /api/market/setup-scan/types` and `GET /api/market/setup-scan?type=...` — launch scanners sharing one market-wide load: `volume-spike` (1h change + volume multiple + above 20d high), `flag-breakout` (prior gain + tight 10×1h flag + volume breakout), `pullback-confirm` (spike then 38.2–78.6% retrace holding the pre-spike close), `retail-short` (retail account ratio ≤0.55 + top-position ratio ≥1.3 rising). Cached per type; `refresh=true` forces a rescan.
 
 `GET /api/health` checks the database (`SELECT 1`) and returns 503 with `status=DOWN` when MySQL is unavailable.
 

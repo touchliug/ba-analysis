@@ -171,11 +171,46 @@ binance:
     daily-analysis: "0 5 8 * * ?"         # 日线级分析器
     short-term-analysis: "0 */5 * * * ?"  # 日内批次 (多空比异动)
     hourly-scan: "0 10 * * * ?"           # 小时连涨+OI净增: 整点后 10 分钟, 等 ba-sync 写入上一小时 OI
+    setup-scan: "0 40 * * * ?"            # 启动扫描: 整点后 40 分钟, 与 hourly-scan 错开
 
   # 每小时扫描: 最近 N 根已收盘 1h 线连阳 + 同窗口 sum_open_interest 净增 (独立页面)
   hourly-scan:
     enabled: true
     periods: 4
+
+  # 启动扫描: 放量突破 / 高位旗形 / 突破回踩 / 散户空头拥挤 (四个捕捉器共用一次全市场加载)
+  setup-scan:
+    enabled: true
+    liquidity:
+      # 24h 成交额低于此值的币, 形态没有交易意义 (几万美元就能插针)
+      min-quote-volume24h: 2000000
+    volume-spike:
+      avg-bars: 24                # 均量基准: 触发根之前取多少根 1h
+      min-volume-multiple: 10     # 触发根成交额 / 基准均量
+      min-change-percent: 5       # 触发根 1h 涨幅下限
+      breakout-days: 20           # 突破参考: 前 N 个交易日最高价
+      require-breakout: true      # 纯放量不突破不出信号
+    flag-breakout:
+      prior-gain-days: 30         # 前置涨幅回看天数
+      min-prior-gain-percent: 100 # 前置涨幅下限, 过滤没有主升浪的币
+      flag-bars: 10               # 旗形由多少根 1h 组成
+      max-flag-range-percent: 8   # 旗形振幅上限
+      min-breakout-volume-multiple: 1.5
+      target-flag-heights: 2      # 目标 = 旗形上沿 + 旗高 × 此倍数
+    pullback-confirm:
+      spike-lookback-bars: 48     # 在最近多少根 1h 里找脉冲
+      min-spike-change-percent: 30
+      min-spike-volume-multiple: 20
+      min-retrace: 0.382
+      max-retrace: 0.786
+      max-pullback-volume-ratio: 0.5   # 回踩段均量 / 脉冲根量
+      min-confirm-volume-ratio: 1
+    retail-short:
+      period: 1h
+      max-retail-ratio: 0.55      # 散户账户多空比上限 (0.55 ≈ 35% 做多)
+      min-top-position-ratio: 1.3
+      top-rise-lookback: 6        # 大户比相对多少根之前抬升
+      min-oi-change24h-percent: -5
 
   # 分析报告 txt 输出目录 (相对 start.sh 所在目录), 启动时清理 30 天前的报告
   report:

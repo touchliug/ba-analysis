@@ -28,6 +28,9 @@
 - 行情查询接口 `MarketController`(多空比/涨跌幅/成交额/资金费率排行/阶段识别/选币/资金流)
 - 小时连涨 OI 增扫描 `/api/market/hourly-rise-oi`: 最近 N 根已收盘 1h 线全部收阳 + 同窗口 `sum_open_interest`(币数)净增,
   独立页面「小时连涨OI增」, 结果按 periods 缓存在内存, 不落库
+- 启动扫描 `/api/market/setup-scan?type=volume-spike|flag-breakout|pullback-confirm|retail-short`:
+  四个捕捉器共用一次全市场加载(1h + 1d K线、1h OI、多空比、费率), 独立页面「启动扫描」,
+  结果按 type 缓存在内存; `type` 见 `/api/market/setup-scan/types`, `refresh=true` 强制重扫
 - 分析接口 `AnalysisController`、报告输出 `ReportWriter`
 - 币种全集从库推导:`symbols` 表为主、`klines` 去重兜底(同步服务写了哪些币就分析哪些);每次手动/定时分析前都会重新读取
 - 健康检查 `/api/health` 会实际查询数据库,MySQL 不可用时返回 503
@@ -46,6 +49,7 @@
 | daily-analysis | `0 5 8 * * ?` | 每日运行日线级分析器(含 interval=1d 的连续扫描;有启用的才跑) |
 | short-term-analysis | `0 */5 * * * ?` | 每 5 分钟运行日内批次(多空比异动;含 interval=1h 的连续扫描;默认关闭) |
 | hourly-scan | `0 10 * * * ?` | 每小时扫描最近 N 根已收盘 1h 连阳且同窗口 `sum_open_interest` 净增(页面读内存缓存) |
+| setup-scan | `0 40 * * * ?` | 每小时运行四个启动捕捉器(放量突破/高位旗形/突破回踩/散户空头拥挤), 与 hourly-scan 错开 |
 
 ## 运行
 ```bash

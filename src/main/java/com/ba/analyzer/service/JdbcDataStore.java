@@ -119,22 +119,44 @@ public class JdbcDataStore {
 
     /** 批量取多 symbol 各自最近 limit 条 OI —— 单条 IN + 窗口函数 (同 {@link #getKlinesBatch})。 */
     public Map<String, List<OpenInterestData>> getOpenInterestBatch(List<String> symbols, String period, int limit) {
+        return getOpenInterestBatch(symbols, period, limit, 0L);
+    }
+
+    /**
+     * 同上, 但可限定 timestamp &gt;= sinceMs(传 0 表示不限定)。
+     *
+     * 为什么需要下界: 与 {@link #getKlinesBatch(List, String, int, long)} 同理 —— ROW_NUMBER()
+     * 必须先把该 symbol 的**全部**匹配行物化才能过滤 rn &lt;= limit; 1h OI 每天新增 24 行且只增不减,
+     * 不带下界时扫描耗时随历史线性增长。
+     */
+    public Map<String, List<OpenInterestData>> getOpenInterestBatch(
+            List<String> symbols, String period, int limit, long sinceMs) {
         Map<String, List<OpenInterestData>> result = new HashMap<>();
         if (symbols == null || symbols.isEmpty()) return result;
+        boolean bounded = sinceMs > 0;
         for (List<String> chunk : partition(symbols, IN_CHUNK)) {
-            String sql = "SELECT * FROM (SELECT o.*, ROW_NUMBER() OVER "
-                    + "(PARTITION BY symbol ORDER BY `timestamp` DESC) rn "
-                    + "FROM open_interest o WHERE period=? AND symbol IN (" + inPlaceholders(chunk.size()) + ")) t "
-                    + "WHERE t.rn <= ? ORDER BY symbol, `timestamp` ASC";
-            Object[] args = new Object[chunk.size() + 2];
-            args[0] = period;
-            for (int i = 0; i < chunk.size(); i++) args[i + 1] = chunk.get(i);
-            args[chunk.size() + 1] = limit;
+            String sql = oiBatchSql(chunk.size(), bounded);
+            Object[] args = new Object[chunk.size() + (bounded ? 3 : 2)];
+            int i = 0;
+            args[i++] = period;
+            if (bounded) args[i++] = sinceMs;
+            for (String s : chunk) args[i++] = s;
+            args[i] = limit;
             jdbc.query(sql, (RowCallbackHandler) rs ->
                     result.computeIfAbsent(rs.getString("symbol"), s -> new ArrayList<>())
                             .add(mapOi(rs, 0)), args);
         }
         return result;
+    }
+
+    /** 批量 OI 查询 SQL (包级可见以便纯逻辑测试)。 */
+    static String oiBatchSql(int chunkSize, boolean bounded) {
+        return "SELECT * FROM (SELECT o.*, ROW_NUMBER() OVER "
+                + "(PARTITION BY symbol ORDER BY `timestamp` DESC) rn "
+                + "FROM open_interest o WHERE period=?"
+                + (bounded ? " AND `timestamp` >= ?" : "")
+                + " AND symbol IN (" + inPlaceholders(chunkSize) + ")) t "
+                + "WHERE t.rn <= ? ORDER BY symbol, `timestamp` ASC";
     }
 
     // ======================== Long/Short Ratio (read-only) ========================

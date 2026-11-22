@@ -38,4 +38,15 @@ class JdbcDataStoreTest {
         assertEquals(1, parts.size());
         assertEquals(List.of(1, 2), parts.get(0));
     }
+
+    @Test
+    void oiBatchSqlAddsTimeLowerBoundOnlyWhenBounded() {
+        String bounded = JdbcDataStore.oiBatchSql(2, true);
+        assertTrue(bounded.contains("`timestamp` >= ?"), bounded);
+        assertTrue(bounded.contains("symbol IN (?,?)"), bounded);
+
+        String unbounded = JdbcDataStore.oiBatchSql(2, false);
+        assertFalse(unbounded.contains(">="), unbounded);
+        assertTrue(unbounded.contains("symbol IN (?,?)"), unbounded);
+    }
 }

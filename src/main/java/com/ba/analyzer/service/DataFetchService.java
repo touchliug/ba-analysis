@@ -77,8 +77,11 @@ public class DataFetchService {
     public Map<String, List<OpenInterestData>> fetchOpenInterestHistoryBatch(
             List<String> symbols, String period, int limit) {
         if (symbols == null || symbols.isEmpty()) return Map.of();
+        // 时间下界: 同 fetchKlines, 只取需要的区间(多留 10 个周期吸收同步缺口),
+        // 避免窗口函数物化该币全部 OI 历史 —— 1h OI 每天新增 24 行, 只增不减。
+        long since = System.currentTimeMillis() - (long) (limit + 10) * intervalMillis(period);
         Map<String, List<OpenInterestData>> stored =
-                dataStore.getOpenInterestBatch(symbols, period, limit);
+                dataStore.getOpenInterestBatch(symbols, period, limit, since);
         if (stored.size() < symbols.size() * 0.9) {
             log.warn("DB has {} OI for only {}/{} symbols; sync service may be behind",
                     period, stored.size(), symbols.size());

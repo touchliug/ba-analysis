@@ -170,6 +170,12 @@ binance:
   schedule:
     daily-analysis: "0 5 8 * * ?"         # 日线级分析器
     short-term-analysis: "0 */5 * * * ?"  # 日内批次 (多空比异动)
+    hourly-scan: "0 10 * * * ?"           # 小时连涨+OI净增: 整点后 10 分钟, 等 ba-sync 写入上一小时 OI
+
+  # 每小时扫描: 最近 N 根已收盘 1h 线连阳 + 同窗口 sum_open_interest 净增 (独立页面)
+  hourly-scan:
+    enabled: true
+    periods: 4
 
   # 分析报告 txt 输出目录 (相对 start.sh 所在目录), 启动时清理 30 天前的报告
   report:

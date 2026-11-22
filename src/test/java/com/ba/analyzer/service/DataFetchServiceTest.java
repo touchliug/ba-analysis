@@ -4,6 +4,7 @@ import com.ba.analyzer.model.KlineData;
 import com.ba.analyzer.model.OpenInterestData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -76,14 +78,31 @@ class DataFetchServiceTest {
         OpenInterestData oi = new OpenInterestData();
         oi.setSymbol("BTCUSDT");
         oi.setSumOpenInterest("100");
-        when(dataStore.getOpenInterestBatch(anyList(), eq("1h"), anyInt()))
+        when(dataStore.getOpenInterestBatch(anyList(), eq("1h"), anyInt(), anyLong()))
                 .thenReturn(Map.of("BTCUSDT", List.of(oi)));
 
         Map<String, List<OpenInterestData>> result =
                 dataFetchService.fetchOpenInterestHistoryBatch(List.of("BTCUSDT"), "1h", 6);
 
         assertEquals(1, result.get("BTCUSDT").size());
-        verify(dataStore).getOpenInterestBatch(anyList(), eq("1h"), anyInt());
+        verify(dataStore).getOpenInterestBatch(anyList(), eq("1h"), anyInt(), anyLong());
+    }
+
+    @Test
+    void boundsOpenInterestQueryByTime() {
+        when(dataStore.getOpenInterestBatch(anyList(), eq("1h"), anyInt(), anyLong()))
+                .thenReturn(Map.of());
+
+        long before = System.currentTimeMillis();
+        dataFetchService.fetchOpenInterestHistoryBatch(List.of("BTCUSDT"), "1h", 4);
+        long after = System.currentTimeMillis();
+
+        ArgumentCaptor<Long> since = ArgumentCaptor.forClass(Long.class);
+        verify(dataStore).getOpenInterestBatch(anyList(), eq("1h"), eq(4), since.capture());
+        // limit 4 + 10 根余量 = 14 小时; 下界必须落在这个窗口内, 否则会漏掉最新 OI
+        long margin = 14 * 3_600_000L;
+        assertTrue(since.getValue() <= after - margin, "since too new: " + since.getValue());
+        assertTrue(since.getValue() >= before - margin, "since too old: " + since.getValue());
     }
 
     private static List<KlineData> klines(int count) {

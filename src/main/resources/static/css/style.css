@@ -431,6 +431,12 @@ body {
 .price-integer { color: #1890ff; font-weight: 700; }
 
 /* ===== Utility Classes ===== */
+.hr-status {
+    font-size: 13px;
+    color: #1890ff;
+    margin: 8px 0 0;
+}
+
 .empty-state {
     text-align: center;
     padding: 48px 24px;

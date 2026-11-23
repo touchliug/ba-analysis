@@ -91,20 +91,26 @@ public class AppProperties {
     @Data
     public static class BullishAccumulationConfig {
         private boolean enabled = false;
-        // 分析窗口(天)
-        private int days = 14;
-        // 最低总分
-        private int minScore = 60;
-        // 价格位置: 回溯天数
-        private int priceLookbackDays = 30;
-        // 价格位置: 最低回撤% (从回溯期高点)
-        private double drawdownMin = 10.0;
-        // 低点抬高: true 时后半段最低点必须高于前半段最低点, 否则不输出
-        private boolean requireHigherLow = true;
-        // 量能回升: 后半段均量/前半段均量 >= 此值
-        private double volumeIncreaseMin = 1.2;
-        // 振幅收敛: 后半段振幅/前半段振幅 <= 此值
-        private double rangeContractionMax = 0.8;
+        // 结构与价格分位回看天数
+        private int lookbackDays = 60;
+        // 最低蓄力评分(基础分30, 满分100)
+        private int minScore = 65;
+        // 二波缩量坑: 前波5日最小涨幅%
+        private double minWaveRisePercent = 40.0;
+        // 二波缩量坑: 距前高最小回撤%
+        private double waveDrawdownMin = 25.0;
+        // 二波缩量坑: 距前高最大回撤%
+        private double waveDrawdownMax = 55.0;
+        // 二波缩量坑: 近5日均额 / 峰值5日均额上限
+        private double maxDryVolumeRatio = 0.15;
+        // 首波潜伏坑: 现价所处回看期收盘价分位数上限%
+        private double lowPricePercentile = 45.0;
+        // 首波潜伏坑: 5日币本位OI最小净增%
+        private double minOiRisePercent = 15.0;
+        // 当日涨幅上限%(超过视为已启动, 不再留在潜伏观察池)
+        private double maxDailyRisePercent = 8.0;
+        // 20日平均日成交额下限(USDT, 0表示不过滤)
+        private double minLiquidityUsdt = 2_000_000.0;
     }
 
     /** 首阴日 = 见顶做空信号: 连涨N天后首根阴线, 次日开盘做空, 止损放在冲高最高点上方。 */

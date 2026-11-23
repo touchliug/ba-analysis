@@ -78,13 +78,16 @@ binance:
 
     bullish-accumulation:
       enabled: false
-      days: 14
-      min-score: 60
-      price-lookback-days: 30
-      drawdown-min: 10.0
-      require-higher-low: true
-      volume-increase-min: 1.2
-      range-contraction-max: 0.8
+      lookback-days: 60
+      min-score: 65
+      min-wave-rise-percent: 40.0
+      wave-drawdown-min: 25.0
+      wave-drawdown-max: 55.0
+      max-dry-volume-ratio: 0.15
+      low-price-percentile: 45.0
+      min-oi-rise-percent: 15.0
+      max-daily-rise-percent: 8.0
+      min-liquidity-usdt: 2000000
 
     # 见顶做空: 连涨N天后首根阴线(已收盘), 次日开盘做空
     first-yin-day:

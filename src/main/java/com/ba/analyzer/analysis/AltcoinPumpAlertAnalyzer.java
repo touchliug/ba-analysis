@@ -145,8 +145,12 @@ public class AltcoinPumpAlertAnalyzer extends AbstractKlineAnalyzer {
             if (priceChange < -maxPriceDeclinePercent) continue;
 
             // === Gate 2: Drawdown filter (not in free-fall) ===
+            // 基准取「窗口内除当日外」的最高价: 当日盘中插针不算回撤
+            // (旧实现含当日最高价, 大涨日/长上影会把自己算成回撤而淘汰)
             double windowHigh = recentKlines.stream().mapToDouble(KlineData::getHighPrice).max().orElse(startPrice);
-            double drawdown = windowHigh > 0 ? ((windowHigh - endPrice) / windowHigh) * 100 : 0;
+            double priorHigh = recentKlines.subList(0, recentKlines.size() - 1).stream()
+                    .mapToDouble(KlineData::getHighPrice).max().orElse(startPrice);
+            double drawdown = priorHigh > 0 ? Math.max(0, (priorHigh - endPrice) / priorHigh * 100) : 0;
             if (drawdown > maxDrawdownPercent) continue;
 
             double maxHigh = windowHigh;

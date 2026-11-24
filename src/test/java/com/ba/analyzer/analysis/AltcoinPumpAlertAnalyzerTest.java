@@ -85,4 +85,34 @@ class AltcoinPumpAlertAnalyzerTest {
 
         assertEquals(0, r.size(), "从前期高点回落 27.5% 仍应被淘汰");
     }
+
+    @Test
+    void ignoresStaleOiWhenComputingOiScore() {
+        long dayMs = 86_400_000L;
+        long latestCloseTime = 1_700_000_000_000L;
+        List<KlineData> list = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            KlineData kd = k(1.00, 1.02, 0.98, 1.00, 1000);
+            kd.setCloseTime(latestCloseTime - (6 - i) * dayMs);
+            list.add(kd);
+        }
+
+        // 构造滞后 5 天的旧 OI 数据 (原本会给 +15 分 OI 分)
+        List<com.ba.analyzer.model.OpenInterestData> staleOi = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            com.ba.analyzer.model.OpenInterestData d = new com.ba.analyzer.model.OpenInterestData();
+            d.setSumOpenInterest(String.valueOf(100 + i * 10));
+            d.setTimestamp(latestCloseTime - (12 - i) * dayMs);
+            staleOi.add(d);
+        }
+        org.mockito.Mockito.when(dataFetchService.fetchOpenInterestHistoryBatch(
+                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(Map.of("XUSDT", staleOi));
+
+        List<AnalysisReport.CoinAnalysis> r = analyzer.doAnalyze(Map.of("XUSDT", list), params());
+        assertEquals(1, r.size());
+        org.junit.jupiter.api.Assertions.assertTrue(
+                r.get(0).getDetail().contains("O0"),
+                "滞后超过 1.5 天的旧 OI 不应计入 OI 蓄力分: " + r.get(0).getDetail());
+    }
 }

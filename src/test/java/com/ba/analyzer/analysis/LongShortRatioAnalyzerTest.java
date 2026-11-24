@@ -118,4 +118,24 @@ class LongShortRatioAnalyzerTest {
         assertTrue(analyzer.requiresIntradayData());
         assertEquals("多空比异动", analyzer.getName());
     }
+
+    @Test
+    void analyze_populatesCurrentPriceAndSupportsRequestParamOverrides() {
+        stubSmartMoney("BTCUSDT");
+        com.ba.analyzer.model.KlineData k = new com.ba.analyzer.model.KlineData();
+        k.setClose("91234.5");
+        when(dataFetchService.fetchKlines(anyList(), eq("1h"), anyInt()))
+                .thenReturn(Map.of("BTCUSDT", List.of(k)));
+
+        // Override minScore to 90 via request params -> score 83 should be filtered out
+        AnalysisReport filtered = analyzer.analyze(List.of("BTCUSDT"), Map.of("minScore", 90));
+        assertEquals(0, filtered.getMatchedCount(), "request param minScore=90 should override config 60");
+        assertEquals("request", filtered.getUsedParams().get("source"));
+
+        // Override minScore to 80 via request params -> score 83 passes and has currentPrice
+        AnalysisReport matched = analyzer.analyze(List.of("BTCUSDT"), Map.of("minScore", 80));
+        assertEquals(1, matched.getMatchedCount());
+        assertEquals(91234.5, matched.getCoins().get(0).getCurrentPrice(), 0.01);
+        assertFalse(analyzer.getParamSpec().containsKey("_note"), "paramSpec should no longer have unsupported _note");
+    }
 }

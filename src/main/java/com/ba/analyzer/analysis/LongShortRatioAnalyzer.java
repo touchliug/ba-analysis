@@ -56,7 +56,6 @@ public class LongShortRatioAnalyzer implements Analyzer {
         return true;
     }
 
-    /** 当前仅从配置读取, 不支持按请求覆盖; 此处只作页面说明。 */
     @Override
     public Map<String, Object> getParamSpec() {
         var c = appProperties.getAnalysis().getLongShortRatio();
@@ -65,15 +64,29 @@ public class LongShortRatioAnalyzer implements Analyzer {
         s.put("lookback", Analyzer.param("int", "与多少根之前比较", c.getLookback()));
         s.put("minScore", Analyzer.param("int", "最低评分(0-100)", c.getMinScore()));
         s.put("takerBullishMin", Analyzer.param("double", "taker买卖比买盘占优阈值", c.getTakerBullishMin()));
-        s.put("_note", Analyzer.param("string", "该分析器参数当前仅从配置(application.yml)读取, 暂不支持按请求覆盖; 此处仅为文档说明", ""));
         return s;
     }
 
     @Override
     public AnalysisReport analyze(List<String> symbols) {
+        return doAnalyze(symbols, null, "config");
+    }
+
+    @Override
+    public AnalysisReport analyze(List<String> symbols, Map<String, Object> requestParams) {
+        return doAnalyze(symbols, requestParams, "request");
+    }
+
+    private AnalysisReport doAnalyze(List<String> symbols, Map<String, Object> requestParams, String source) {
         var cfg = appProperties.getAnalysis().getLongShortRatio();
-        String period = cfg.getPeriod();
-        int limit = cfg.getLookback() + 1;
+        String period = (requestParams != null && requestParams.get("period") != null
+                && !requestParams.get("period").toString().isBlank())
+                ? requestParams.get("period").toString().trim()
+                : cfg.getPeriod();
+        int lookback = getIntParam(requestParams, "lookback", cfg.getLookback());
+        int minScore = getIntParam(requestParams, "minScore", cfg.getMinScore());
+        double takerBullishMin = getDoubleParam(requestParams, "takerBullishMin", cfg.getTakerBullishMin());
+        int limit = lookback + 1;
 
         Map<String, List<LongShortRatioData>> topPos =
                 dataFetchService.getLongShortRatioBatch(symbols, "TOP_POSITION", period, limit);
@@ -81,14 +94,18 @@ public class LongShortRatioAnalyzer implements Analyzer {
                 dataFetchService.getLongShortRatioBatch(symbols, "GLOBAL_ACCOUNT", period, limit);
         Map<String, List<LongShortRatioData>> taker =
                 dataFetchService.getLongShortRatioBatch(symbols, "TAKER", period, 1);
+        String klineInterval = "1d".equalsIgnoreCase(period) ? "1d" : "1h";
+        Map<String, List<com.ba.analyzer.model.KlineData>> priceMap =
+                dataFetchService.fetchKlines(symbols, klineInterval, 2);
+        if (priceMap == null) priceMap = Map.of();
 
         List<AnalysisReport.CoinAnalysis> matched = new ArrayList<>();
         for (String symbol : symbols) {
             List<LongShortRatioData> tp = topPos.get(symbol);
             List<LongShortRatioData> tk = taker.get(symbol);
-            if (tp == null || tp.size() < cfg.getLookback() + 1) {
+            if (tp == null || tp.size() < lookback + 1) {
                 log.debug("skip {}: TOP_POSITION series insufficient ({} < {})",
-                        symbol, tp == null ? 0 : tp.size(), cfg.getLookback() + 1);
+                        symbol, tp == null ? 0 : tp.size(), lookback + 1);
                 continue;
             }
             if (tk == null || tk.isEmpty()) {
@@ -112,7 +129,7 @@ public class LongShortRatioAnalyzer implements Analyzer {
 
             double tpHit = clamp01(tpChangePct / 10.0);
             // 饱和区间=1.0: taker 比 takerBullishMin 高出 1.0 即满分
-            double takerHit = clamp01((latestTaker - cfg.getTakerBullishMin()) / 1.0);
+            double takerHit = clamp01((latestTaker - takerBullishMin) / 1.0);
             double divHit = (tpChangePct > 0 && gaChangePct < 0)
                     ? clamp01((tpChangePct - gaChangePct) / 20.0) : 0;
 
@@ -120,9 +137,15 @@ public class LongShortRatioAnalyzer implements Analyzer {
                     tpHit * cfg.getTopPositionWeight()
                             + takerHit * cfg.getTakerWeight()
                             + divHit * cfg.getDivergenceWeight()));
-            if (score < cfg.getMinScore()) continue;
+            if (score < minScore) continue;
 
-            String side = (tpChangePct > 0 && latestTaker >= cfg.getTakerBullishMin()) ? "long" : "watch";
+            String side = (tpChangePct > 0 && latestTaker >= takerBullishMin) ? "long" : "watch";
+
+            double currentPrice = 0;
+            List<com.ba.analyzer.model.KlineData> klines = priceMap.get(symbol);
+            if (klines != null && !klines.isEmpty()) {
+                currentPrice = klines.get(klines.size() - 1).getClosePrice();
+            }
 
             Map<String, Object> breakdown = new LinkedHashMap<>();
             breakdown.put("topPosition", (int) Math.round(tpHit * cfg.getTopPositionWeight()));
@@ -131,6 +154,7 @@ public class LongShortRatioAnalyzer implements Analyzer {
 
             matched.add(AnalysisReport.CoinAnalysis.builder()
                     .symbol(symbol)
+                    .currentPrice(currentPrice)
                     .changePercent(tpChangePct)
                     .score(score)
                     .side(side)
@@ -147,14 +171,18 @@ public class LongShortRatioAnalyzer implements Analyzer {
 
         Map<String, Object> used = new LinkedHashMap<>();
         used.put("period", period);
-        used.put("lookback", cfg.getLookback());
-        used.put("minScore", cfg.getMinScore());
-        used.put("source", "config");
+        used.put("lookback", lookback);
+        used.put("minScore", minScore);
+        used.put("takerBullishMin", takerBullishMin);
+        used.put("source", source);
+
+        String desc = String.format("大户持仓多空比抬升+taker买盘占优+与散户背离, 评分≥%d (period=%s, lookback=%d)",
+                minScore, period, lookback);
 
         return AnalysisReport.builder()
                 .analysisType(getName())
                 .analysisTime(LocalDateTime.now())
-                .description(getDescription())
+                .description(desc)
                 .coins(matched)
                 .totalAnalyzed(symbols.size())
                 .matchedCount(matched.size())

@@ -201,7 +201,8 @@ public class AltcoinPumpAlertAnalyzer extends AbstractKlineAnalyzer {
             // ========================
             // O — OI蓄力 (0-15): 加分项, 数据覆盖有限
             // ========================
-            int oScore = calcOiScore(oiHistoryMap.get(symbol), oiConsecutiveDays, priceChange);
+            List<OpenInterestData> oiHistory = alignFreshOi(oiHistoryMap.get(symbol), latest.getCloseTime());
+            int oScore = calcOiScore(oiHistory, oiConsecutiveDays, priceChange);
 
             // ========================
             // P — 价格位置 (0-10): 低位有更多上涨空间
@@ -220,7 +221,6 @@ public class AltcoinPumpAlertAnalyzer extends AbstractKlineAnalyzer {
             // Collect detail data
             double oiChange = 0;
             int oiConsecutive = 0;
-            List<OpenInterestData> oiHistory = oiHistoryMap.get(symbol);
             if (oiHistory != null && oiHistory.size() >= 2) {
                 double firstOi = oiHistory.get(0).getOpenInterestValue();
                 double lastOi = oiHistory.get(oiHistory.size() - 1).getOpenInterestValue();
@@ -249,6 +249,15 @@ public class AltcoinPumpAlertAnalyzer extends AbstractKlineAnalyzer {
     // ========================
     // OI scoring (0-15): bonus, not a gate
     // ========================
+    private List<OpenInterestData> alignFreshOi(List<OpenInterestData> oiHistory, long latestCloseTime) {
+        if (oiHistory == null || oiHistory.size() < 2) return null;
+        long oiTs = oiHistory.get(oiHistory.size() - 1).getTimestamp();
+        if (oiTs > 0 && latestCloseTime > 0 && Math.abs(oiTs - latestCloseTime) > DAY_MS * 3 / 2) {
+            return null;
+        }
+        return oiHistory;
+    }
+
     private int calcOiScore(List<OpenInterestData> oiHistory, int oiConsecutiveDays, double priceChange) {
         if (oiHistory == null || oiHistory.size() < 2) return 0;
         double firstOi = oiHistory.get(0).getOpenInterestValue();

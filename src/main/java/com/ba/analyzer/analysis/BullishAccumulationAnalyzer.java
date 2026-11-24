@@ -102,7 +102,7 @@ public class BullishAccumulationAnalyzer extends AbstractKlineAnalyzer {
 
     @Override
     protected Map<String, List<KlineData>> fetchData(List<String> symbols, Map<String, Object> params) {
-        int lookbackDays = (int) params.get("lookbackDays");
+        int lookbackDays = Math.max(20, (int) params.get("lookbackDays"));
         return dataFetchService.fetchDailyKlines(symbols, lookbackDays + 2);
     }
 
@@ -174,16 +174,21 @@ public class BullishAccumulationAnalyzer extends AbstractKlineAnalyzer {
             double oiRisePct = 0;
             int oiUpDays = 0;
             List<OpenInterestData> ois = oiMap.get(symbol);
-            if (ois != null && ois.size() >= 2) {
-                int startIdx = Math.max(0, ois.size() - OI_POINTS);
-                double firstOi = ois.get(startIdx).getOpenInterestValue();
-                double lastOi = ois.get(ois.size() - 1).getOpenInterestValue();
-                if (firstOi > 0) {
-                    oiRisePct = (lastOi / firstOi - 1) * 100;
-                }
-                for (int i = startIdx + 1; i < ois.size(); i++) {
-                    if (ois.get(i).getOpenInterestValue() > ois.get(i - 1).getOpenInterestValue()) {
-                        oiUpDays++;
+            if (ois != null && ois.size() >= OI_POINTS) {
+                long oiTs = ois.get(ois.size() - 1).getTimestamp();
+                boolean oiFresh = oiTs <= 0 || latest.getCloseTime() <= 0
+                        || Math.abs(oiTs - latest.getCloseTime()) <= DAY_MS * 3 / 2;
+                if (oiFresh) {
+                    int startIdx = ois.size() - OI_POINTS;
+                    double firstOi = ois.get(startIdx).getOpenInterestValue();
+                    double lastOi = ois.get(ois.size() - 1).getOpenInterestValue();
+                    if (firstOi > 0) {
+                        oiRisePct = (lastOi / firstOi - 1) * 100;
+                    }
+                    for (int i = startIdx + 1; i < ois.size(); i++) {
+                        if (ois.get(i).getOpenInterestValue() > ois.get(i - 1).getOpenInterestValue()) {
+                            oiUpDays++;
+                        }
                     }
                 }
             }

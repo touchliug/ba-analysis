@@ -199,4 +199,30 @@ class BullishAccumulationAnalyzerTest {
         assertEquals(75, r.get(0).getScore());
         assertTrue(r.get(0).getDetail().contains("[首波试盘潜伏]"), r.get(0).getDetail());
     }
+
+    @Test
+    void ignoresStaleOrShortOiSeries() {
+        long dayMs = 86_400_000L;
+        long latestCloseTime = 1_700_000_000_000L;
+        List<KlineData> list = new ArrayList<>();
+        for (int i = 0; i < 40; i++) list.add(k(1.50, 1.53, 1.47, 1.50, 8_000_000));
+        for (int i = 0; i < 19; i++) list.add(k(1.03, 1.05, 1.01, 1.03, 5_000_000));
+        KlineData last = k(0.99, 1.02, 0.98, 1.01, 5_000_000);
+        last.setCloseTime(latestCloseTime);
+        list.add(last);
+
+        // 6个OI点但最新时间戳滞后 5 天 (> 1.5 天阈值)
+        List<OpenInterestData> staleOis = new ArrayList<>();
+        double[] vals = {100, 105, 112, 110, 120, 130};
+        for (int i = 0; i < vals.length; i++) {
+            OpenInterestData d = oi(vals[i]);
+            d.setTimestamp(latestCloseTime - (10 - i) * dayMs);
+            staleOis.add(d);
+        }
+        when(dataFetchService.fetchOpenInterestHistoryBatch(anyList(), anyInt()))
+                .thenReturn(Map.of("STALEUSDT", staleOis));
+
+        List<AnalysisReport.CoinAnalysis> r = analyzer.doAnalyze(Map.of("STALEUSDT", list), defaultParams());
+        assertTrue(r.isEmpty(), "滞后超过1.5天的旧OI数据不应触发首波OI潜伏");
+    }
 }
